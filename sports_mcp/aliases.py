@@ -108,3 +108,74 @@ LEAGUES: dict[str, LeagueInfo] = _build_league_index()
 def resolve_league(text: str) -> LeagueInfo | None:
     """Resolve a free-text league name to a LeagueInfo, or None."""
     return LEAGUES.get(text.strip().lower())
+
+
+from sports_mcp.teams_data import TEAM_REGISTRY
+
+
+@dataclass(frozen=True)
+class TeamMatchOne:
+    """Exactly one team matched."""
+
+    team: TeamInfo
+
+
+@dataclass(frozen=True)
+class TeamMatchAmbiguous:
+    """Multiple teams matched the alias."""
+
+    teams: tuple[TeamInfo, ...]
+
+
+@dataclass(frozen=True)
+class TeamMatchNone:
+    """No team matched. May include fuzzy suggestions."""
+
+    suggestions: list[str]
+
+
+TeamMatch = TeamMatchOne | TeamMatchAmbiguous | TeamMatchNone
+
+
+def _build_team_index() -> dict[str, list[TeamInfo]]:
+    index: dict[str, list[TeamInfo]] = {}
+    for t in TEAM_REGISTRY:
+        for alias in t.aliases:
+            index.setdefault(alias, []).append(t)
+    return index
+
+
+TEAMS: dict[str, list[TeamInfo]] = _build_team_index()
+
+
+def _all_alias_strings() -> list[str]:
+    return list(TEAMS.keys())
+
+
+def resolve_team(
+    text: str,
+    prefer_league: str | None = None,
+) -> TeamMatch:
+    """Resolve a free-text team name to a TeamMatch.
+
+    If multiple teams share the alias and prefer_league disambiguates,
+    return the unique match in that league. Otherwise return ambiguous.
+
+    For unknown aliases, return TeamMatchNone with up to three close
+    suggestions via difflib.
+    """
+    key = text.strip().lower()
+    matches = TEAMS.get(key, [])
+
+    if prefer_league is not None and matches:
+        in_league = [t for t in matches if t.league_slug == prefer_league]
+        if len(in_league) == 1:
+            return TeamMatchOne(in_league[0])
+
+    if len(matches) == 1:
+        return TeamMatchOne(matches[0])
+    if len(matches) > 1:
+        return TeamMatchAmbiguous(tuple(matches))
+
+    suggestions = difflib.get_close_matches(key, _all_alias_strings(), n=3, cutoff=0.6)
+    return TeamMatchNone(list(suggestions))
