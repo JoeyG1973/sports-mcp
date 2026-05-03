@@ -729,3 +729,81 @@ async def test_get_league_status_world_cup_pre_tournament_fallback():
         "The World Cup is in the offseason. "
         "No current events. The tournament may not have started yet."
     )
+
+
+import pytest
+
+from sports_mcp.format import no_punctuation_artifacts
+
+
+@pytest.mark.parametrize(
+    "tool_name,arg",
+    [
+        ("get_live_score", "Quidditch United"),
+        ("get_next_game", "Quidditch United"),
+        ("get_standings", "Quidditch"),
+        ("get_league_status", "Quidditch"),
+    ],
+)
+async def test_no_tool_returns_empty_for_unknown_input(tool_name, arg):
+    """No tool may return an empty string for an unrecognized league or team."""
+    from sports_mcp import tools as t
+    tool = getattr(t, tool_name)
+    c = make_client(lambda r: httpx.Response(200, json={}))
+    try:
+        s = await tool(c, arg)
+    finally:
+        await c.aclose()
+    assert s != ""
+    assert no_punctuation_artifacts(s)
+
+
+@pytest.mark.parametrize(
+    "tool_name,arg",
+    [
+        ("get_live_score", "Lakers"),
+        ("get_next_game", "Lakers"),
+        ("get_standings", "NBA"),
+        ("get_league_status", "NBA"),
+    ],
+)
+async def test_no_tool_returns_empty_when_espn_unreachable(tool_name, arg):
+    """No tool may return an empty string when ESPN raises a connection error."""
+    from sports_mcp import tools as t
+    tool = getattr(t, tool_name)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom")
+
+    c = make_client(handler)
+    try:
+        s = await tool(c, arg)
+    finally:
+        await c.aclose()
+    assert s != ""
+    assert no_punctuation_artifacts(s)
+
+
+async def test_no_tool_returns_empty_with_minimal_payload():
+    """get_standings and get_league_status with empty children/events
+    must still produce a non-empty string.
+    """
+    from sports_mcp import tools as t
+
+    standings_payload = {"name": "X", "children": []}
+    c = make_client(lambda r: httpx.Response(200, json=standings_payload))
+    try:
+        s = await t.get_standings(c, "NBA")
+    finally:
+        await c.aclose()
+    assert s != ""
+    assert no_punctuation_artifacts(s)
+
+    league_status_payload = {"leagues": [], "events": []}
+    c = make_client(lambda r: httpx.Response(200, json=league_status_payload))
+    try:
+        s = await t.get_league_status(c, "NBA")
+    finally:
+        await c.aclose()
+    assert s != ""
+    assert no_punctuation_artifacts(s)
