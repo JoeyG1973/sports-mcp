@@ -408,7 +408,11 @@ def _events_phrase_for_status(events: list[dict]) -> str:
         elif state == "post":
             tail = "final"
         else:
-            tail = f"scheduled {short}".strip()
+            short_clean = short.strip()
+            if not short_clean or short_clean.lower() == "scheduled":
+                tail = "scheduled"
+            else:
+                tail = f"scheduled {short_clean}"
         sentences.append(
             f"{away['team']['displayName']} at {home['team']['displayName']}, {tail}."
         )

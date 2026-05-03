@@ -672,3 +672,33 @@ async def test_get_standings_postseason_no_clinch_data():
     finally:
         await c.aclose()
     assert s == "Premier League. Arsenal first at 25 wins and 5 losses."
+
+
+async def test_get_league_status_scheduled_no_short_detail():
+    """ESPN's pre-state events often have shortDetail='Scheduled'. The
+    output must read 'scheduled.' once, not 'scheduled Scheduled.'.
+    """
+    payload = {
+        "leagues": [{"season": {"type": {"name": "Group Stage"}}}],
+        "events": [
+            {
+                "id": "1",
+                "competitions": [
+                    {
+                        "competitors": [
+                            {"team": {"displayName": "South Africa"}, "score": "0", "homeAway": "away"},
+                            {"team": {"displayName": "Mexico"}, "score": "0", "homeAway": "home"},
+                        ],
+                        "status": {"type": {"state": "pre", "shortDetail": "Scheduled"}},
+                    }
+                ],
+            }
+        ],
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_league_status(c, "World Cup")
+    finally:
+        await c.aclose()
+    assert "scheduled Scheduled" not in s
+    assert "South Africa at Mexico, scheduled." in s
