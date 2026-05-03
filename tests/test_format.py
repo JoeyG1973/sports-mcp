@@ -371,3 +371,24 @@ def test_standings_block_no_qualification_unchanged():
         "Milwaukee Bucks second at 48 wins and 22 losses."
     )
     assert no_punctuation_artifacts(s)
+
+
+from sports_mcp.format import season_phase_prefix
+
+
+def test_season_phase_prefix_offseason():
+    assert season_phase_prefix("NFL", "offseason") == (
+        "The NFL is in the offseason. Last season. "
+    )
+
+
+def test_season_phase_prefix_postseason():
+    assert season_phase_prefix("NHL", "postseason") == "The NHL is in the playoffs. "
+
+
+def test_season_phase_prefix_regular_returns_empty():
+    assert season_phase_prefix("NBA", "regular") == ""
+
+
+def test_season_phase_prefix_unknown_returns_empty():
+    assert season_phase_prefix("NBA", "wat") == ""

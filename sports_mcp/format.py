@@ -260,3 +260,16 @@ def pre_game_line(
         f"The {team_name} don't have a live game yet. "
         f"They {verb} the {opp_name} {date_str} at {time_str}."
     )
+
+
+def season_phase_prefix(league_name: str, phase: str) -> str:
+    """Return the phase-announcement prefix for a get_standings response.
+
+    phase is one of 'regular', 'postseason', 'offseason'. Anything else
+    yields an empty prefix.
+    """
+    if phase == "offseason":
+        return f"The {league_name} is in the offseason. Last season. "
+    if phase == "postseason":
+        return f"The {league_name} is in the playoffs. "
+    return ""
