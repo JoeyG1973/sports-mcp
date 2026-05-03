@@ -836,3 +836,157 @@ async def test_get_standings_nhl_buffalo_sabres_smoke():
         "Buffalo Sabres second at 50 wins and 23 losses, "
         "won their division and qualified for the playoffs"
     ) in s
+
+
+def _make_pre_event(team_a: str, team_b: str, iso_date: str) -> dict:
+    """Build a synthetic pre-state event for tests."""
+    return {
+        "id": iso_date,
+        "date": iso_date,
+        "competitions": [
+            {
+                "competitors": [
+                    {"team": {"displayName": team_a}, "homeAway": "away"},
+                    {"team": {"displayName": team_b}, "homeAway": "home"},
+                ],
+                "status": {"type": {"state": "pre", "shortDetail": "Scheduled"}},
+            }
+        ],
+    }
+
+
+from sports_mcp.tools import _all_events_are_future, _upcoming_matches_phrase
+
+
+def test_all_events_are_future_empty():
+    assert _all_events_are_future([]) is False
+
+
+def test_all_events_are_future_only_future_events():
+    events = [
+        _make_pre_event("South Africa", "Mexico", "2099-06-11T19:00Z"),
+        _make_pre_event("Czechia", "South Korea", "2099-06-12T19:00Z"),
+    ]
+    assert _all_events_are_future(events) is True
+
+
+def test_all_events_are_future_mixed_today_and_future():
+    """Today's event present → not 'all future'."""
+    import datetime as _dt
+    today_iso = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+    events = [
+        _make_pre_event("Lakers", "Celtics", today_iso),
+        _make_pre_event("Heat", "Knicks", "2099-06-12T19:00Z"),
+    ]
+    assert _all_events_are_future(events) is False
+
+
+def test_all_events_are_future_event_in_progress():
+    """A live game → definitely not 'all future', regardless of dates."""
+    events = [
+        {
+            "id": "1",
+            "date": "2099-06-11T19:00Z",
+            "competitions": [
+                {
+                    "competitors": [
+                        {"team": {"displayName": "A"}, "homeAway": "away"},
+                        {"team": {"displayName": "B"}, "homeAway": "home"},
+                    ],
+                    "status": {"type": {"state": "in"}},
+                }
+            ],
+        }
+    ]
+    assert _all_events_are_future(events) is False
+
+
+def test_upcoming_matches_phrase_two_events(monkeypatch):
+    import datetime as _dt
+    fixed_now = _dt.datetime(2099, 6, 1, 12, 0).astimezone()
+    monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
+    events = [
+        _make_pre_event("South Africa", "Mexico", "2099-06-11T19:00Z"),
+        _make_pre_event("Czechia", "South Korea", "2099-06-12T19:00Z"),
+    ]
+    s = _upcoming_matches_phrase(events)
+    assert s == (
+        "Upcoming matches include South Africa at Mexico on June 11 "
+        "and Czechia at South Korea on June 12."
+    )
+
+
+def test_upcoming_matches_phrase_three_events_oxford_comma(monkeypatch):
+    import datetime as _dt
+    fixed_now = _dt.datetime(2099, 6, 1, 12, 0).astimezone()
+    monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
+    events = [
+        _make_pre_event("A", "B", "2099-06-11T19:00Z"),
+        _make_pre_event("C", "D", "2099-06-12T19:00Z"),
+        _make_pre_event("E", "F", "2099-06-13T19:00Z"),
+    ]
+    s = _upcoming_matches_phrase(events)
+    assert "and E at F on June 13." in s
+    assert "A at B on June 11," in s
+
+
+async def test_get_league_status_world_cup_upcoming_matches(monkeypatch):
+    """All events future-dated AND pre-tournament → 'hasn't started yet' framing."""
+    import datetime as _dt
+    fixed_now = _dt.datetime(2099, 6, 1, 12, 0).astimezone()
+    monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
+    payload = {
+        "leagues": [
+            {
+                "season": {
+                    "type": {"name": "Group Stage"},
+                    "startDate": "2099-06-11T00:00Z",
+                }
+            }
+        ],
+        "events": [
+            _make_pre_event("South Africa", "Mexico", "2099-06-11T19:00Z"),
+            _make_pre_event("USA", "Paraguay", "2099-06-12T19:00Z"),
+        ],
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_league_status(c, "World Cup")
+    finally:
+        await c.aclose()
+    assert s == (
+        "The World Cup hasn't started yet. "
+        "Upcoming matches include South Africa at Mexico on June 11 "
+        "and USA at Paraguay on June 12."
+    )
+
+
+async def test_get_league_status_in_season_with_only_future_events(monkeypatch):
+    """All events future but season already started → use season prefix, not 'hasn't started'."""
+    import datetime as _dt
+    fixed_now = _dt.datetime(2099, 6, 1, 12, 0).astimezone()
+    monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
+    payload = {
+        "leagues": [
+            {
+                "season": {
+                    "type": {"name": "Regular Season"},
+                    # startDate in the actual past — _detect_offseason
+                    # uses real datetime.now, not the monkeypatched format._now_local.
+                    "startDate": "2020-04-01T00:00Z",
+                }
+            }
+        ],
+        "events": [
+            _make_pre_event("Lakers", "Celtics", "2099-06-11T19:00Z"),
+        ],
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_league_status(c, "NBA")
+    finally:
+        await c.aclose()
+    assert s == (
+        "The NBA is in the regular season. "
+        "Upcoming matches include Lakers at Celtics on June 11."
+    )

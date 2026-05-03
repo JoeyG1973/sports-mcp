@@ -406,6 +406,67 @@ def _sanitize_short_detail(short: str) -> str:
     return cleaned.strip()
 
 
+def _all_events_are_future(events: list[dict]) -> bool:
+    """Return True if events is non-empty and every event is future-dated.
+
+    "Future-dated" means the event's local-date is after today and its
+    state is not "in" (in progress). Events whose date cannot be parsed
+    are ignored. If no parseable future event exists, returns False.
+    """
+    if not events:
+        return False
+    now = _dt.datetime.now(_dt.timezone.utc)
+    today_local = now.astimezone().date()
+    has_future = False
+    for event in events:
+        comp = _competition_of_event(event)
+        status = comp.get("status", {})
+        state = (status.get("type") or {}).get("state")
+        if state == "in":
+            return False
+        when = _parse_event_datetime(event.get("date") or "")
+        if when is None:
+            continue
+        event_local_date = when.astimezone().date()
+        if event_local_date > today_local:
+            has_future = True
+        else:
+            # An event today or earlier exists; not "all future".
+            return False
+    return has_future
+
+
+def _upcoming_matches_phrase(events: list[dict], limit: int = 3) -> str:
+    """Render 'Upcoming matches include X at Y on D, A at B on E.' (TTS-safe).
+
+    Caps at limit events to keep the output listenable. Joins with Oxford-
+    style 'and' for the last item.
+    """
+    pairs: list[str] = []
+    for event in events:
+        comp = _competition_of_event(event)
+        competitors = comp.get("competitors", [])
+        home = next((c for c in competitors if c.get("homeAway") == "home"), None)
+        away = next((c for c in competitors if c.get("homeAway") == "away"), None)
+        if home is None or away is None:
+            continue
+        when = _parse_event_datetime(event.get("date") or "")
+        if when is None:
+            continue
+        date_str = fmt.date_phrase(when)
+        team_pair = f"{away['team']['displayName']} at {home['team']['displayName']}"
+        pairs.append(f"{team_pair} on {date_str}")
+        if len(pairs) >= limit:
+            break
+    if not pairs:
+        return "No upcoming matches found."
+    if len(pairs) == 1:
+        return f"Upcoming matches include {pairs[0]}."
+    if len(pairs) == 2:
+        return f"Upcoming matches include {pairs[0]} and {pairs[1]}."
+    return f"Upcoming matches include {', '.join(pairs[:-1])}, and {pairs[-1]}."
+
+
 def _events_phrase_for_status(events: list[dict]) -> str:
     if not events:
         return ""
@@ -453,8 +514,16 @@ async def get_league_status(client: ESPNClient, league: str) -> str:
     leagues = data.get("leagues") or []
     league_block = leagues[0] if leagues else {}
     season_phrase = _season_phrase(league_block)
-    events_phrase = _events_phrase_for_status(data.get("events") or [])
+    events = data.get("events") or []
     is_pre_tournament = _detect_offseason(league_block)
+
+    if _all_events_are_future(events):
+        upcoming = _upcoming_matches_phrase(events)
+        if is_pre_tournament:
+            return f"The {info.name} hasn't started yet. {upcoming}"
+        return f"The {info.name} is in the {season_phrase}. {upcoming}"
+
+    events_phrase = _events_phrase_for_status(events)
     return fmt.league_status_block(
         info.name,
         season_phrase,
