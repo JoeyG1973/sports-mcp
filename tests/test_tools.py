@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 from sports_mcp.espn import ESPNClient
-from sports_mcp.tools import get_live_score
+from sports_mcp.tools import get_live_score, get_next_game
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -108,6 +108,68 @@ async def test_get_live_score_espn_unreachable():
     c = make_client(handler)
     try:
         s = await get_live_score(c, "Lakers")
+    finally:
+        await c.aclose()
+    assert "Couldn't reach ESPN" in s
+
+
+async def test_get_next_game_unknown_team():
+    c = make_client(lambda r: httpx.Response(200, json={}))
+    try:
+        s = await get_next_game(c, "Quidditch United")
+    finally:
+        await c.aclose()
+    assert "I don't recognize" in s
+
+
+async def test_get_next_game_no_upcoming():
+    payload = {"events": []}
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_next_game(c, "Lakers")
+    finally:
+        await c.aclose()
+    assert "do not have a scheduled game" in s
+
+
+async def test_get_next_game_with_upcoming():
+    # ESPN returns ISO 8601 UTC. Pick a date several months out so the
+    # weekday/calendar phrasing doesn't depend on test-run date.
+    payload = {
+        "events": [
+            {
+                "id": "1",
+                "date": "2099-12-25T01:00Z",
+                "competitions": [
+                    {
+                        "competitors": [
+                            {"team": {"id": "13", "displayName": "Los Angeles Lakers"}, "homeAway": "away"},
+                            {"team": {"id": "2", "displayName": "Boston Celtics"}, "homeAway": "home"},
+                        ],
+                        "venue": {"fullName": "TD Garden"},
+                        "status": {"type": {"state": "pre"}},
+                    }
+                ],
+            }
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_next_game(c, "Lakers")
+    finally:
+        await c.aclose()
+    assert "Los Angeles Lakers" in s
+    assert "Boston Celtics" in s
+    assert "TD Garden" in s
+
+
+async def test_get_next_game_espn_unreachable():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom")
+
+    c = make_client(handler)
+    try:
+        s = await get_next_game(c, "Lakers")
     finally:
         await c.aclose()
     assert "Couldn't reach ESPN" in s

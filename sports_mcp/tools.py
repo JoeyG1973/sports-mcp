@@ -5,6 +5,7 @@ errors are translated into prose and logged.
 """
 from __future__ import annotations
 
+import datetime as _dt
 import logging
 
 import httpx
@@ -125,3 +126,78 @@ async def get_live_score(client: ESPNClient, team: str) -> str:
         period_text=period_text,
         clock_text=clock_text,
     )
+
+
+def _parse_event_datetime(iso: str) -> _dt.datetime | None:
+    # ESPN uses '2026-05-08T19:30Z'; Python wants '+00:00' or use fromisoformat with Z.
+    if not iso:
+        return None
+    try:
+        return _dt.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _next_event_for_team(events: list[dict], team_id: str) -> dict | None:
+    """Return the soonest future event involving team_id, or None."""
+    now = _dt.datetime.now(_dt.timezone.utc)
+    candidates: list[tuple[_dt.datetime, dict]] = []
+    for event in events:
+        when = _parse_event_datetime(event.get("date") or "")
+        if when is None or when < now:
+            continue
+        for comp in event.get("competitions", []):
+            for c in comp.get("competitors", []):
+                if str((c.get("team") or {}).get("id")) == team_id:
+                    candidates.append((when, event))
+                    break
+    candidates.sort(key=lambda kv: kv[0])
+    return candidates[0][1] if candidates else None
+
+
+async def get_next_game(client: ESPNClient, team: str) -> str:
+    match = resolve_team(team)
+    if isinstance(match, TeamMatchNone):
+        return fmt.unknown_team_message(team, match.suggestions)
+    if isinstance(match, TeamMatchAmbiguous):
+        return fmt.ambiguity_message(team, _ambiguity_candidates(match.teams))
+    assert isinstance(match, TeamMatchOne)
+    info = match.team
+
+    try:
+        data = await client.team_schedule(info.league_slug, info.espn_id)
+    except httpx.HTTPError as e:
+        log.warning("team_schedule fetch failed: %s", e)
+        return ESPN_UNREACHABLE
+
+    events = data.get("events") or []
+    event = _next_event_for_team(events, info.espn_id)
+    if event is None:
+        return f"The {info.name} do not have a scheduled game on the calendar."
+
+    when = _parse_event_datetime(event.get("date") or "")
+    comp = _competition_of_event(event)
+    competitors = comp.get("competitors", [])
+    home = next((c for c in competitors if c.get("homeAway") == "home"), None)
+    away = next((c for c in competitors if c.get("homeAway") == "away"), None)
+    venue = (comp.get("venue") or {}).get("fullName") or ""
+
+    if home is None or away is None or when is None:
+        return f"The {info.name} do not have a scheduled game on the calendar."
+
+    home_name = home["team"]["displayName"]
+    away_name = away["team"]["displayName"]
+    is_home = home["team"]["id"] == info.espn_id
+
+    date_str = fmt.date_phrase(when)
+    time_str = fmt.time_phrase(when)
+    opponent = home_name if not is_home else away_name
+    location_phrase = f"at {venue}" if venue else ""
+
+    if is_home:
+        sentence = f"The {info.name} host the {opponent} {date_str} at {time_str}"
+    else:
+        sentence = f"The {info.name} play the {opponent} {date_str} at {time_str}"
+    if location_phrase:
+        sentence = f"{sentence} {location_phrase}"
+    return sentence + "."
