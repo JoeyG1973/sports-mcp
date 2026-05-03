@@ -437,4 +437,10 @@ async def get_league_status(client: ESPNClient, league: str) -> str:
     league_block = leagues[0] if leagues else {}
     season_phrase = _season_phrase(league_block)
     events_phrase = _events_phrase_for_status(data.get("events") or [])
-    return fmt.league_status_block(info.name, season_phrase, events_phrase)
+    is_pre_tournament = _detect_offseason(league_block)
+    return fmt.league_status_block(
+        info.name,
+        season_phrase,
+        events_phrase,
+        is_pre_tournament=is_pre_tournament,
+    )

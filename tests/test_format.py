@@ -392,3 +392,38 @@ def test_season_phase_prefix_regular_returns_empty():
 
 def test_season_phase_prefix_unknown_returns_empty():
     assert season_phase_prefix("NBA", "wat") == ""
+
+
+def test_league_status_block_pre_tournament_with_no_events():
+    s = league_status_block(
+        "World Cup",
+        season_phrase="offseason",
+        events_phrase="",
+        is_pre_tournament=True,
+    )
+    assert s == (
+        "The World Cup is in the offseason. "
+        "No current events. The tournament may not have started yet."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+def test_league_status_block_pre_tournament_with_events():
+    """When events exist, the events_phrase wins regardless of is_pre_tournament."""
+    s = league_status_block(
+        "World Cup",
+        season_phrase="group stage",
+        events_phrase="Mexico at Canada, scheduled.",
+        is_pre_tournament=True,
+    )
+    assert s == "The World Cup is in the group stage. Mexico at Canada, scheduled."
+
+
+def test_league_status_block_no_pre_tournament_default():
+    """is_pre_tournament defaults to False; existing callers unaffected."""
+    s = league_status_block(
+        "NBA",
+        season_phrase="regular season, week 12",
+        events_phrase="",
+    )
+    assert s == "The NBA is in the regular season, week 12. No games today."

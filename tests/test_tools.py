@@ -702,3 +702,30 @@ async def test_get_league_status_scheduled_no_short_detail():
         await c.aclose()
     assert "scheduled Scheduled" not in s
     assert "South Africa at Mexico, scheduled." in s
+
+
+async def test_get_league_status_world_cup_pre_tournament_fallback():
+    """When the scoreboard returns no events and the league season's
+    startDate is in the future, the fallback message acknowledges the
+    tournament cycle.
+    """
+    payload = {
+        "leagues": [
+            {
+                "season": {
+                    "type": {"name": "Off Season"},
+                    "startDate": "2099-06-11T00:00Z",
+                }
+            }
+        ],
+        "events": [],
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_league_status(c, "World Cup")
+    finally:
+        await c.aclose()
+    assert s == (
+        "The World Cup is in the offseason. "
+        "No current events. The tournament may not have started yet."
+    )
