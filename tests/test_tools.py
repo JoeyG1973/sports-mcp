@@ -807,3 +807,26 @@ async def test_no_tool_returns_empty_with_minimal_payload():
         await c.aclose()
     assert s != ""
     assert no_punctuation_artifacts(s)
+
+
+async def test_get_standings_nhl_buffalo_sabres_smoke():
+    """Regression test for row extraction in get_standings.
+
+    Renders Buffalo Sabres from a captured ESPN NHL standings response
+    and verifies the row appears at the right rank with the right wins,
+    losses, and clinch annotation.
+
+    Fixture captured 2026-05-03 from
+        https://site.api.espn.com/apis/v2/sports/hockey/nhl/standings
+    Re-capture and update the assertion if ESPN's response changes.
+    """
+    payload = load("nhl_standings.json")
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_standings(c, "NHL")
+    finally:
+        await c.aclose()
+    assert (
+        "Buffalo Sabres second at 50 wins and 23 losses, "
+        "qualified for the playoffs"
+    ) in s
