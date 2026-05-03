@@ -195,10 +195,23 @@ def league_status_block(
     league_name: str,
     season_phrase: str,
     events_phrase: str,
+    *,
+    is_pre_tournament: bool = False,
 ) -> str:
-    """Combine season context and today's slate into one TTS-safe paragraph."""
+    """Combine season context and today's slate into one TTS-safe paragraph.
+
+    When events_phrase is empty and is_pre_tournament is True, use a
+    tournament-aware fallback message instead of the default
+    "No games today.". This matches the expected wording for between-
+    tournaments leagues like the World Cup.
+    """
     head = f"The {league_name} is in the {season_phrase}."
-    body = events_phrase.strip() if events_phrase else "No games today."
+    if events_phrase.strip():
+        body = events_phrase.strip()
+    elif is_pre_tournament:
+        body = "No current events. The tournament may not have started yet."
+    else:
+        body = "No games today."
     return f"{head} {body}"
 
 

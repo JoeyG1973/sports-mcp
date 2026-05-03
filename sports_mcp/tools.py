@@ -237,15 +237,19 @@ def _stat_value(entry: dict, name: str) -> int:
     return 0
 
 
-def _detect_offseason(standings_data: dict) -> bool:
-    """Return True if the standings response describes an upcoming season.
+def _detect_offseason(season_block: dict) -> bool:
+    """Return True if season_block describes a season that has not yet started.
 
-    ESPN's standings endpoint returns the most recently completed season's
-    records during a league's offseason; the 'season' block then carries
-    the startDate of the *next* season. If that startDate is in the future,
-    we are in offseason.
+    Inspects season_block['season']['startDate']. If the date is in the
+    future relative to UTC now, the league is considered to be in a
+    pre-season or between-tournaments window. Returns False if the key
+    is absent or unparseable (graceful fallback).
+
+    Works for any ESPN response shape that carries 'season.startDate' at
+    the top level of the passed dict — both the standings endpoint response
+    and the scoreboard's leagues[0] block use this shape.
     """
-    season = standings_data.get("season") or {}
+    season = season_block.get("season") or {}
     start_iso = season.get("startDate") or ""
     if not start_iso:
         return False
@@ -408,7 +412,11 @@ def _events_phrase_for_status(events: list[dict]) -> str:
         elif state == "post":
             tail = "final"
         else:
-            tail = f"scheduled {short}".strip()
+            short_clean = short.strip()
+            if not short_clean or short_clean.lower() == "scheduled":
+                tail = "scheduled"
+            else:
+                tail = f"scheduled {short_clean}"
         sentences.append(
             f"{away['team']['displayName']} at {home['team']['displayName']}, {tail}."
         )
@@ -433,4 +441,10 @@ async def get_league_status(client: ESPNClient, league: str) -> str:
     league_block = leagues[0] if leagues else {}
     season_phrase = _season_phrase(league_block)
     events_phrase = _events_phrase_for_status(data.get("events") or [])
-    return fmt.league_status_block(info.name, season_phrase, events_phrase)
+    is_pre_tournament = _detect_offseason(league_block)
+    return fmt.league_status_block(
+        info.name,
+        season_phrase,
+        events_phrase,
+        is_pre_tournament=is_pre_tournament,
+    )
