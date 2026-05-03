@@ -165,6 +165,8 @@ def standings_block(label: str, rows: list[dict]) -> str:
     """Render a standings table as TTS-safe prose.
 
     Each row is a dict with 'name', 'wins', 'losses'. Optional 'ties' key.
+    Optional 'qualification' key, one of 'qualified' or 'eliminated', adds
+    a playoff-qualification annotation to that row.
     """
     if not rows:
         return f"{label} standings are not available."
@@ -175,9 +177,15 @@ def standings_block(label: str, rows: list[dict]) -> str:
         losses = row["losses"]
         wins_word = "win" if wins == 1 else "wins"
         losses_word = "loss" if losses == 1 else "losses"
-        parts.append(
-            f"{row['name']} {rank} at {wins} {wins_word} and {losses} {losses_word}."
+        sentence = (
+            f"{row['name']} {rank} at {wins} {wins_word} and {losses} {losses_word}"
         )
+        qualification = row.get("qualification")
+        if qualification == "qualified":
+            sentence += ", qualified for the playoffs"
+        elif qualification == "eliminated":
+            sentence += ", did not qualify for the playoffs"
+        parts.append(sentence + ".")
     text = " ".join(parts)
     # Trim final period so we can re-add it cleanly with no double periods.
     return text.rstrip(".") + "."
