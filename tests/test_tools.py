@@ -527,3 +527,148 @@ def test_detect_postseason_no_clinch_stat():
 
 def test_detect_postseason_empty_payload():
     assert _detect_postseason({}) is False
+
+
+async def test_get_standings_offseason_nfl():
+    payload = {
+        "name": "NFL Standings",
+        "season": {"startDate": "2099-08-06T07:00Z"},
+        "children": [
+            {
+                "name": "AFC East",
+                "standings": {
+                    "entries": [
+                        {
+                            "team": {"displayName": "Buffalo Bills"},
+                            "stats": [
+                                {"name": "wins", "value": 12},
+                                {"name": "losses", "value": 5},
+                                {"name": "clincher", "displayValue": "y"},
+                            ],
+                        },
+                        {
+                            "team": {"displayName": "Miami Dolphins"},
+                            "stats": [
+                                {"name": "wins", "value": 9},
+                                {"name": "losses", "value": 8},
+                                {"name": "clincher", "displayValue": "e"},
+                            ],
+                        },
+                    ]
+                },
+            }
+        ],
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_standings(c, "NFL")
+    finally:
+        await c.aclose()
+    assert s.startswith("The NFL is in the offseason. Last season. ")
+    assert "Buffalo Bills first at 12 wins and 5 losses, qualified for the playoffs." in s
+    assert "Miami Dolphins second at 9 wins and 8 losses, did not qualify for the playoffs." in s
+
+
+async def test_get_standings_postseason_nhl():
+    payload = {
+        "name": "NHL Standings",
+        "season": {"startDate": "2020-09-20T07:00Z"},
+        "children": [
+            {
+                "name": "Eastern Conference",
+                "standings": {
+                    "entries": [
+                        {
+                            "team": {"displayName": "Carolina Hurricanes"},
+                            "stats": [
+                                {"name": "wins", "value": 53},
+                                {"name": "losses", "value": 20},
+                                {"name": "clincher", "displayValue": "z"},
+                            ],
+                        },
+                        {
+                            "team": {"displayName": "New Jersey Devils"},
+                            "stats": [
+                                {"name": "wins", "value": 42},
+                                {"name": "losses", "value": 37},
+                                {"name": "clincher", "displayValue": "e"},
+                            ],
+                        },
+                    ]
+                },
+            }
+        ],
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_standings(c, "NHL")
+    finally:
+        await c.aclose()
+    assert s.startswith("The NHL is in the playoffs. ")
+    assert "Carolina Hurricanes first at 53 wins and 20 losses, qualified for the playoffs." in s
+    assert "New Jersey Devils second at 42 wins and 37 losses, did not qualify for the playoffs." in s
+
+
+async def test_get_standings_regular_season_unchanged():
+    payload = {
+        "name": "NBA Standings",
+        "season": {"startDate": "2020-10-01T07:00Z"},
+        "children": [
+            {
+                "name": "Eastern Conference",
+                "standings": {
+                    "entries": [
+                        {
+                            "team": {"displayName": "Boston Celtics"},
+                            "stats": [
+                                {"name": "wins", "value": 52},
+                                {"name": "losses", "value": 18},
+                            ],
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_standings(c, "NBA")
+    finally:
+        await c.aclose()
+    # No prefix, no per-team annotation. Output is exactly the pre-change format.
+    assert s == "Eastern Conference. Boston Celtics first at 52 wins and 18 losses."
+
+
+async def test_get_standings_postseason_no_clinch_data():
+    """League past regular season but ESPN response lacks clincher stat per team.
+
+    With no clinch data, _detect_postseason returns False. So the prefix
+    is empty and no per-team annotations are added. This is the safe
+    fallback path described in the spec.
+    """
+    payload = {
+        "name": "Premier League",
+        "season": {"startDate": "2020-08-01T07:00Z"},
+        "children": [
+            {
+                "name": "Premier League",
+                "standings": {
+                    "entries": [
+                        {
+                            "team": {"displayName": "Arsenal"},
+                            "stats": [
+                                {"name": "wins", "value": 25},
+                                {"name": "losses", "value": 5},
+                            ],
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_standings(c, "Premier League")
+    finally:
+        await c.aclose()
+    assert s == "Premier League. Arsenal first at 25 wins and 5 losses."

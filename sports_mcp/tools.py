@@ -274,17 +274,42 @@ def _detect_postseason(standings_data: dict) -> bool:
     return False
 
 
-def _rows_from_standings_entries(entries: list[dict]) -> list[dict]:
+def _qualification_from_clinch(entry: dict) -> str | None:
+    """Translate ESPN's 'clincher' stat into 'qualified', 'eliminated', or None."""
+    for stat in entry.get("stats") or []:
+        if stat.get("name") == "clincher":
+            value = stat.get("displayValue") or ""
+            if value in ("x", "y", "z"):
+                return "qualified"
+            if value == "e":
+                return "eliminated"
+            return None
+    return None
+
+
+def _rows_from_standings_entries(
+    entries: list[dict],
+    annotate_qualification: bool = False,
+) -> list[dict]:
+    """Convert ESPN standings entries into the dict shape standings_block expects.
+
+    When annotate_qualification is True, each row gets an optional
+    'qualification' key derived from the 'clincher' stat. When False, no
+    qualification key is emitted (preserves the regular-season output).
+    """
     rows: list[dict] = []
     for e in entries:
         team_name = (e.get("team") or {}).get("displayName") or ""
-        rows.append(
-            {
-                "name": team_name,
-                "wins": _stat_value(e, "wins"),
-                "losses": _stat_value(e, "losses"),
-            }
-        )
+        row: dict = {
+            "name": team_name,
+            "wins": _stat_value(e, "wins"),
+            "losses": _stat_value(e, "losses"),
+        }
+        if annotate_qualification:
+            qualification = _qualification_from_clinch(e)
+            if qualification is not None:
+                row["qualification"] = qualification
+        rows.append(row)
     return rows
 
 
@@ -314,13 +339,21 @@ async def get_standings(client: ESPNClient, league: str) -> str:
     if not children:
         return f"{info.name} standings are not available."
 
+    if _detect_offseason(data):
+        phase = "offseason"
+    elif _detect_postseason(data):
+        phase = "postseason"
+    else:
+        phase = "regular"
+
+    annotate = phase != "regular"
     blocks: list[str] = []
     for child in children:
         label = child.get("name") or info.name
         entries = ((child.get("standings") or {}).get("entries")) or []
-        rows = _rows_from_standings_entries(entries)
+        rows = _rows_from_standings_entries(entries, annotate_qualification=annotate)
         blocks.append(fmt.standings_block(label, rows))
-    return " ".join(blocks)
+    return fmt.season_phase_prefix(info.name, phase) + " ".join(blocks)
 
 
 def _season_phrase(league_block: dict) -> str:
