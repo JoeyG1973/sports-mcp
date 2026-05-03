@@ -261,3 +261,62 @@ async def get_standings(client: ESPNClient, league: str) -> str:
         rows = _rows_from_standings_entries(entries)
         blocks.append(fmt.standings_block(label, rows))
     return " ".join(blocks)
+
+
+def _season_phrase(league_block: dict) -> str:
+    season = (league_block.get("season") or {})
+    type_block = season.get("type") or {}
+    type_name = (type_block.get("name") or "").lower().strip()
+    if not type_name or "off" in type_name:
+        return "offseason"
+    # Common ESPN values: 'preseason', 'regular season', 'postseason'
+    return type_name
+
+
+def _events_phrase_for_status(events: list[dict]) -> str:
+    if not events:
+        return ""
+    sentences: list[str] = []
+    for event in events:
+        comp = _competition_of_event(event)
+        competitors = comp.get("competitors", [])
+        home = next((c for c in competitors if c.get("homeAway") == "home"), None)
+        away = next((c for c in competitors if c.get("homeAway") == "away"), None)
+        if home is None or away is None:
+            continue
+        status = comp.get("status", {})
+        state = (status.get("type") or {}).get("state")
+        short = (status.get("type") or {}).get("shortDetail") or ""
+        # Strip TTS-unfriendly characters from the ESPN-supplied detail.
+        short = short.replace("/", " ").replace("(", "").replace(")", "")
+        if state == "in":
+            tail = "in progress"
+        elif state == "post":
+            tail = "final"
+        else:
+            tail = f"scheduled {short}".strip()
+        sentences.append(
+            f"{away['team']['displayName']} at {home['team']['displayName']}, {tail}."
+        )
+    return " ".join(sentences)
+
+
+async def get_league_status(client: ESPNClient, league: str) -> str:
+    info = resolve_league(league)
+    if info is None:
+        suggestions = difflib.get_close_matches(
+            league.lower(), _league_alias_strings(), n=3, cutoff=0.6
+        )
+        return fmt.unknown_league_message(league, list(suggestions))
+
+    try:
+        data = await client.scoreboard(info.slug)
+    except httpx.HTTPError as e:
+        log.warning("scoreboard fetch failed: %s", e)
+        return ESPN_UNREACHABLE
+
+    leagues = data.get("leagues") or []
+    league_block = leagues[0] if leagues else {}
+    season_phrase = _season_phrase(league_block)
+    events_phrase = _events_phrase_for_status(data.get("events") or [])
+    return fmt.league_status_block(info.name, season_phrase, events_phrase)

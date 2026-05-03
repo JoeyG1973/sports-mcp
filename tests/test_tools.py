@@ -175,7 +175,7 @@ async def test_get_next_game_espn_unreachable():
     assert "Couldn't reach ESPN" in s
 
 
-from sports_mcp.tools import get_standings
+from sports_mcp.tools import get_standings, get_league_status
 
 
 async def test_get_standings_unknown_league():
@@ -273,6 +273,72 @@ async def test_get_standings_unreachable():
     c = make_client(handler)
     try:
         s = await get_standings(c, "NBA")
+    finally:
+        await c.aclose()
+    assert "Couldn't reach ESPN" in s
+
+
+async def test_get_league_status_in_season_with_games():
+    payload = {
+        "leagues": [
+            {
+                "season": {"type": {"name": "Regular Season"}},
+                "calendar": [],
+            }
+        ],
+        "events": [
+            {
+                "id": "1",
+                "competitions": [
+                    {
+                        "competitors": [
+                            {"team": {"displayName": "Lakers"}, "score": "0", "homeAway": "away"},
+                            {"team": {"displayName": "Celtics"}, "score": "0", "homeAway": "home"},
+                        ],
+                        "status": {"type": {"state": "pre", "shortDetail": "7:30 PM ET"}},
+                    }
+                ],
+            }
+        ],
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_league_status(c, "NBA")
+    finally:
+        await c.aclose()
+    assert "The NBA is in the regular season" in s
+    assert "Lakers" in s and "Celtics" in s
+
+
+async def test_get_league_status_no_games():
+    payload = {
+        "leagues": [{"season": {"type": {"name": "Off Season"}}}],
+        "events": [],
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_league_status(c, "NBA")
+    finally:
+        await c.aclose()
+    assert "No games today" in s
+
+
+async def test_get_league_status_unknown_league():
+    c = make_client(lambda r: httpx.Response(200, json={}))
+    try:
+        s = await get_league_status(c, "Quidditch")
+    finally:
+        await c.aclose()
+    assert "I don't recognize" in s
+
+
+async def test_get_league_status_unreachable():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom")
+
+    c = make_client(handler)
+    try:
+        s = await get_league_status(c, "NBA")
     finally:
         await c.aclose()
     assert "Couldn't reach ESPN" in s
