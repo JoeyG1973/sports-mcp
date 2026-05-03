@@ -147,3 +147,97 @@ def test_date_phrase_calendar_date_beyond_week(monkeypatch):
     monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
     in_15_days = _dt.datetime(2026, 5, 23, 20, 0).astimezone()
     assert date_phrase(in_15_days) == "May 23"
+
+
+from sports_mcp.format import (
+    ambiguity_message,
+    league_status_block,
+    standings_block,
+    unknown_league_message,
+    unknown_team_message,
+)
+
+
+def test_standings_block_simple_table():
+    rows = [
+        {"name": "Boston Celtics", "wins": 52, "losses": 18},
+        {"name": "Milwaukee Bucks", "wins": 48, "losses": 22},
+    ]
+    s = standings_block("Eastern Conference", rows)
+    assert s == (
+        "Eastern Conference. "
+        "Boston Celtics first at 52 wins and 18 losses. "
+        "Milwaukee Bucks second at 48 wins and 22 losses."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+def test_standings_block_empty():
+    s = standings_block("Eastern Conference", [])
+    assert s == "Eastern Conference standings are not available."
+
+
+def test_league_status_block_in_season_with_games():
+    s = league_status_block(
+        "NBA",
+        season_phrase="regular season, week 12",
+        events_phrase="Lakers at Celtics, fourth quarter. Heat at Knicks, scheduled 7 30 PM.",
+    )
+    assert s == (
+        "The NBA is in the regular season, week 12. "
+        "Lakers at Celtics, fourth quarter. Heat at Knicks, scheduled 7 30 PM."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+def test_league_status_block_no_events():
+    s = league_status_block(
+        "NBA",
+        season_phrase="regular season, week 12",
+        events_phrase="",
+    )
+    assert s == "The NBA is in the regular season, week 12. No games today."
+
+
+def test_league_status_block_offseason():
+    s = league_status_block(
+        "NFL",
+        season_phrase="offseason",
+        events_phrase="",
+    )
+    assert s == "The NFL is in the offseason. No games today."
+
+
+def test_ambiguity_message():
+    s = ambiguity_message(
+        "Giants",
+        ["the NFL Giants", "the MLB Giants"],
+    )
+    assert s == "Giants is ambiguous. Did you mean the NFL Giants or the MLB Giants?"
+    assert no_punctuation_artifacts(s)
+
+
+def test_ambiguity_message_three_options():
+    s = ambiguity_message(
+        "Cardinals",
+        ["the NFL Cardinals", "the MLB Cardinals", "the college Cardinals"],
+    )
+    assert s == (
+        "Cardinals is ambiguous. "
+        "Did you mean the NFL Cardinals, the MLB Cardinals, or the college Cardinals?"
+    )
+
+
+def test_unknown_team_message_with_suggestions():
+    s = unknown_team_message("Lkaers", ["lakers", "clippers"])
+    assert s == "I don't recognize Lkaers. Did you mean lakers or clippers?"
+
+
+def test_unknown_team_message_no_suggestions():
+    s = unknown_team_message("zzzzz", [])
+    assert s == "I don't recognize zzzzz."
+
+
+def test_unknown_league_message():
+    s = unknown_league_message("KHL", ["nhl"])
+    assert s == "I don't recognize KHL. Did you mean nhl?"

@@ -149,3 +149,64 @@ def date_phrase(when: _dt.datetime) -> str:
     if 2 <= delta_days < 7:
         return local.strftime("%A")
     return local.strftime("%B %-d")
+
+
+def _join_with_or(items: list[str]) -> str:
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} or {items[1]}"
+    return ", ".join(items[:-1]) + ", or " + items[-1]
+
+
+def standings_block(label: str, rows: list[dict]) -> str:
+    """Render a standings table as TTS-safe prose.
+
+    Each row is a dict with 'name', 'wins', 'losses'. Optional 'ties' key.
+    """
+    if not rows:
+        return f"{label} standings are not available."
+    parts = [f"{label}."]
+    for i, row in enumerate(rows, start=1):
+        rank = ordinal_word(i)
+        wins = row["wins"]
+        losses = row["losses"]
+        wins_word = "win" if wins == 1 else "wins"
+        losses_word = "loss" if losses == 1 else "losses"
+        parts.append(
+            f"{row['name']} {rank} at {wins} {wins_word} and {losses} {losses_word}."
+        )
+    text = " ".join(parts)
+    # Trim final period so we can re-add it cleanly with no double periods.
+    return text.rstrip(".") + "."
+
+
+def league_status_block(
+    league_name: str,
+    season_phrase: str,
+    events_phrase: str,
+) -> str:
+    """Combine season context and today's slate into one TTS-safe paragraph."""
+    head = f"The {league_name} is in the {season_phrase}."
+    body = events_phrase.strip() if events_phrase else "No games today."
+    return f"{head} {body}"
+
+
+def ambiguity_message(team_text: str, candidates: list[str]) -> str:
+    """Compose 'X is ambiguous. Did you mean A, B, or C?' for 2 or more options."""
+    return f"{team_text} is ambiguous. Did you mean {_join_with_or(candidates)}?"
+
+
+def unknown_team_message(team_text: str, suggestions: list[str]) -> str:
+    """Compose 'I don't recognize X[. Did you mean ...]?' as TTS-safe prose."""
+    if not suggestions:
+        return f"I don't recognize {team_text}."
+    return f"I don't recognize {team_text}. Did you mean {_join_with_or(suggestions)}?"
+
+
+def unknown_league_message(league_text: str, suggestions: list[str]) -> str:
+    if not suggestions:
+        return f"I don't recognize {league_text}."
+    return f"I don't recognize {league_text}. Did you mean {_join_with_or(suggestions)}?"
