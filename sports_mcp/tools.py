@@ -237,17 +237,79 @@ def _stat_value(entry: dict, name: str) -> int:
     return 0
 
 
-def _rows_from_standings_entries(entries: list[dict]) -> list[dict]:
+def _detect_offseason(standings_data: dict) -> bool:
+    """Return True if the standings response describes an upcoming season.
+
+    ESPN's standings endpoint returns the most recently completed season's
+    records during a league's offseason; the 'season' block then carries
+    the startDate of the *next* season. If that startDate is in the future,
+    we are in offseason.
+    """
+    season = standings_data.get("season") or {}
+    start_iso = season.get("startDate") or ""
+    if not start_iso:
+        return False
+    parsed = _parse_event_datetime(start_iso)
+    if parsed is None:
+        return False
+    now = _dt.datetime.now(_dt.timezone.utc)
+    return parsed > now
+
+
+def _detect_postseason(standings_data: dict) -> bool:
+    """Return True if any team in the standings has been eliminated.
+
+    ESPN exposes per-team playoff status as a 'clincher' stat. The value
+    'e' means eliminated. A non-empty set of eliminations confirms the
+    regular season is over and postseason is underway. If no entry carries
+    a clincher stat, return False (the league either is mid-regular-season
+    or does not instrument playoffs).
+    """
+    for child in standings_data.get("children") or []:
+        entries = ((child.get("standings") or {}).get("entries")) or []
+        for entry in entries:
+            for stat in entry.get("stats") or []:
+                if stat.get("name") == "clincher" and stat.get("displayValue") == "e":
+                    return True
+    return False
+
+
+def _qualification_from_clinch(entry: dict) -> str | None:
+    """Translate ESPN's 'clincher' stat into 'qualified', 'eliminated', or None."""
+    for stat in entry.get("stats") or []:
+        if stat.get("name") == "clincher":
+            value = stat.get("displayValue") or ""
+            if value in ("x", "y", "z"):
+                return "qualified"
+            if value == "e":
+                return "eliminated"
+            return None
+    return None
+
+
+def _rows_from_standings_entries(
+    entries: list[dict],
+    annotate_qualification: bool = False,
+) -> list[dict]:
+    """Convert ESPN standings entries into the dict shape standings_block expects.
+
+    When annotate_qualification is True, each row gets an optional
+    'qualification' key derived from the 'clincher' stat. When False, no
+    qualification key is emitted (preserves the regular-season output).
+    """
     rows: list[dict] = []
     for e in entries:
         team_name = (e.get("team") or {}).get("displayName") or ""
-        rows.append(
-            {
-                "name": team_name,
-                "wins": _stat_value(e, "wins"),
-                "losses": _stat_value(e, "losses"),
-            }
-        )
+        row: dict = {
+            "name": team_name,
+            "wins": _stat_value(e, "wins"),
+            "losses": _stat_value(e, "losses"),
+        }
+        if annotate_qualification:
+            qualification = _qualification_from_clinch(e)
+            if qualification is not None:
+                row["qualification"] = qualification
+        rows.append(row)
     return rows
 
 
@@ -277,13 +339,21 @@ async def get_standings(client: ESPNClient, league: str) -> str:
     if not children:
         return f"{info.name} standings are not available."
 
+    if _detect_offseason(data):
+        phase = "offseason"
+    elif _detect_postseason(data):
+        phase = "postseason"
+    else:
+        phase = "regular"
+
+    annotate = phase != "regular"
     blocks: list[str] = []
     for child in children:
         label = child.get("name") or info.name
         entries = ((child.get("standings") or {}).get("entries")) or []
-        rows = _rows_from_standings_entries(entries)
+        rows = _rows_from_standings_entries(entries, annotate_qualification=annotate)
         blocks.append(fmt.standings_block(label, rows))
-    return " ".join(blocks)
+    return fmt.season_phase_prefix(info.name, phase) + " ".join(blocks)
 
 
 def _season_phrase(league_block: dict) -> str:

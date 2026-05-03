@@ -333,3 +333,62 @@ def test_pre_game_line_tomorrow(monkeypatch):
         "They play the Boston Celtics tomorrow at 7 30 PM."
     )
     assert no_punctuation_artifacts(s)
+
+
+def test_standings_block_with_qualified_annotation():
+    rows = [
+        {"name": "Boston Celtics", "wins": 52, "losses": 18, "qualification": "qualified"},
+    ]
+    s = standings_block("Eastern Conference", rows)
+    assert s == (
+        "Eastern Conference. "
+        "Boston Celtics first at 52 wins and 18 losses, qualified for the playoffs."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+def test_standings_block_with_eliminated_annotation():
+    rows = [
+        {"name": "New Jersey Devils", "wins": 42, "losses": 37, "qualification": "eliminated"},
+    ]
+    s = standings_block("Eastern Conference", rows)
+    assert s == (
+        "Eastern Conference. "
+        "New Jersey Devils first at 42 wins and 37 losses, did not qualify for the playoffs."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+def test_standings_block_no_qualification_unchanged():
+    rows = [
+        {"name": "Boston Celtics", "wins": 52, "losses": 18},
+        {"name": "Milwaukee Bucks", "wins": 48, "losses": 22},
+    ]
+    s = standings_block("Eastern Conference", rows)
+    assert s == (
+        "Eastern Conference. "
+        "Boston Celtics first at 52 wins and 18 losses. "
+        "Milwaukee Bucks second at 48 wins and 22 losses."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+from sports_mcp.format import season_phase_prefix
+
+
+def test_season_phase_prefix_offseason():
+    assert season_phase_prefix("NFL", "offseason") == (
+        "The NFL is in the offseason. Last season. "
+    )
+
+
+def test_season_phase_prefix_postseason():
+    assert season_phase_prefix("NHL", "postseason") == "The NHL is in the playoffs. "
+
+
+def test_season_phase_prefix_regular_returns_empty():
+    assert season_phase_prefix("NBA", "regular") == ""
+
+
+def test_season_phase_prefix_unknown_returns_empty():
+    assert season_phase_prefix("NBA", "wat") == ""
