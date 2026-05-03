@@ -173,3 +173,106 @@ async def test_get_next_game_espn_unreachable():
     finally:
         await c.aclose()
     assert "Couldn't reach ESPN" in s
+
+
+from sports_mcp.tools import get_standings
+
+
+async def test_get_standings_unknown_league():
+    c = make_client(lambda r: httpx.Response(200, json={}))
+    try:
+        s = await get_standings(c, "Quidditch")
+    finally:
+        await c.aclose()
+    assert "I don't recognize" in s
+
+
+async def test_get_standings_two_conferences():
+    payload = {
+        "name": "NBA Standings",
+        "children": [
+            {
+                "name": "Eastern Conference",
+                "standings": {
+                    "entries": [
+                        {
+                            "team": {"displayName": "Boston Celtics"},
+                            "stats": [
+                                {"name": "wins", "value": 52},
+                                {"name": "losses", "value": 18},
+                            ],
+                        },
+                        {
+                            "team": {"displayName": "Milwaukee Bucks"},
+                            "stats": [
+                                {"name": "wins", "value": 48},
+                                {"name": "losses", "value": 22},
+                            ],
+                        },
+                    ]
+                },
+            },
+            {
+                "name": "Western Conference",
+                "standings": {
+                    "entries": [
+                        {
+                            "team": {"displayName": "Denver Nuggets"},
+                            "stats": [
+                                {"name": "wins", "value": 50},
+                                {"name": "losses", "value": 20},
+                            ],
+                        }
+                    ]
+                },
+            },
+        ],
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_standings(c, "NBA")
+    finally:
+        await c.aclose()
+    assert "Eastern Conference" in s
+    assert "Western Conference" in s
+    assert "Boston Celtics first at 52 wins and 18 losses" in s
+
+
+async def test_get_standings_single_table():
+    payload = {
+        "name": "Premier League",
+        "children": [
+            {
+                "name": "Premier League",
+                "standings": {
+                    "entries": [
+                        {
+                            "team": {"displayName": "Arsenal"},
+                            "stats": [
+                                {"name": "wins", "value": 25},
+                                {"name": "losses", "value": 5},
+                            ],
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_standings(c, "Premier League")
+    finally:
+        await c.aclose()
+    assert "Arsenal first at 25 wins and 5 losses" in s
+
+
+async def test_get_standings_unreachable():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom")
+
+    c = make_client(handler)
+    try:
+        s = await get_standings(c, "NBA")
+    finally:
+        await c.aclose()
+    assert "Couldn't reach ESPN" in s

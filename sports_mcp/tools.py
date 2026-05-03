@@ -6,6 +6,7 @@ errors are translated into prose and logged.
 from __future__ import annotations
 
 import datetime as _dt
+import difflib
 import logging
 
 import httpx
@@ -201,3 +202,62 @@ async def get_next_game(client: ESPNClient, team: str) -> str:
     if location_phrase:
         sentence = f"{sentence} {location_phrase}"
     return sentence + "."
+
+
+def _stat_value(entry: dict, name: str) -> int:
+    for stat in entry.get("stats", []):
+        if stat.get("name") == name:
+            try:
+                return int(stat.get("value") or 0)
+            except (TypeError, ValueError):
+                return 0
+    return 0
+
+
+def _rows_from_standings_entries(entries: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for e in entries:
+        team_name = (e.get("team") or {}).get("displayName") or ""
+        rows.append(
+            {
+                "name": team_name,
+                "wins": _stat_value(e, "wins"),
+                "losses": _stat_value(e, "losses"),
+            }
+        )
+    return rows
+
+
+def _league_alias_strings() -> list[str]:
+    out: list[str] = []
+    for li in LEAGUE_REGISTRY:
+        out.extend(li.aliases)
+        out.append(li.name.lower())
+    return out
+
+
+async def get_standings(client: ESPNClient, league: str) -> str:
+    info = resolve_league(league)
+    if info is None:
+        suggestions = difflib.get_close_matches(
+            league.lower(), _league_alias_strings(), n=3, cutoff=0.6
+        )
+        return fmt.unknown_league_message(league, list(suggestions))
+
+    try:
+        data = await client.standings(info.slug)
+    except httpx.HTTPError as e:
+        log.warning("standings fetch failed: %s", e)
+        return ESPN_UNREACHABLE
+
+    children = data.get("children") or []
+    if not children:
+        return f"{info.name} standings are not available."
+
+    blocks: list[str] = []
+    for child in children:
+        label = child.get("name") or info.name
+        entries = ((child.get("standings") or {}).get("entries")) or []
+        rows = _rows_from_standings_entries(entries)
+        blocks.append(fmt.standings_block(label, rows))
+    return " ".join(blocks)
