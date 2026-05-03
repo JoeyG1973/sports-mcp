@@ -241,3 +241,39 @@ def test_unknown_team_message_no_suggestions():
 def test_unknown_league_message():
     s = unknown_league_message("KHL", ["nhl"])
     assert s == "I don't recognize KHL. Did you mean nhl?"
+
+
+from sports_mcp.format import final_outcome_line
+
+
+def test_final_outcome_line_win():
+    s = final_outcome_line(
+        team_name="Los Angeles Lakers",
+        team_score=91,
+        opp_name="Boston Celtics",
+        opp_score=89,
+    )
+    assert s == "The Los Angeles Lakers beat the Boston Celtics 91 to 89."
+    assert no_punctuation_artifacts(s)
+
+
+def test_final_outcome_line_loss():
+    s = final_outcome_line(
+        team_name="Los Angeles Lakers",
+        team_score=89,
+        opp_name="Boston Celtics",
+        opp_score=91,
+    )
+    assert s == "The Los Angeles Lakers lost to the Boston Celtics 89 to 91."
+    assert no_punctuation_artifacts(s)
+
+
+def test_final_outcome_line_tie():
+    s = final_outcome_line(
+        team_name="Arsenal",
+        team_score=1,
+        opp_name="Chelsea",
+        opp_score=1,
+    )
+    assert s == "The Arsenal and the Chelsea tied 1 to 1."
+    assert no_punctuation_artifacts(s)
