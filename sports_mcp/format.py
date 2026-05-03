@@ -165,8 +165,12 @@ def standings_block(label: str, rows: list[dict]) -> str:
     """Render a standings table as TTS-safe prose.
 
     Each row is a dict with 'name', 'wins', 'losses'. Optional 'ties' key.
-    Optional 'qualification' key, one of 'qualified' or 'eliminated', adds
-    a playoff-qualification annotation to that row.
+    Optional 'qualification' key, one of 'qualified' / 'division_winner' /
+    'best_record' / 'eliminated', adds a playoff-qualification annotation
+    to that row. The richer values (division_winner, best_record) carry
+    the same "qualified for the playoffs" implication but also surface the
+    division-leader or top-seed context that ESPN's clincher field
+    distinguishes.
     """
     if not rows:
         return f"{label} standings are not available."
@@ -183,6 +187,10 @@ def standings_block(label: str, rows: list[dict]) -> str:
         qualification = row.get("qualification")
         if qualification == "qualified":
             sentence += ", qualified for the playoffs"
+        elif qualification == "division_winner":
+            sentence += ", won their division and qualified for the playoffs"
+        elif qualification == "best_record":
+            sentence += ", had the best record and qualified for the playoffs"
         elif qualification == "eliminated":
             sentence += ", did not qualify for the playoffs"
         parts.append(sentence + ".")

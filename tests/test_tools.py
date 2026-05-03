@@ -565,7 +565,10 @@ async def test_get_standings_offseason_nfl():
     finally:
         await c.aclose()
     assert s.startswith("The NFL is in the offseason. Last season. ")
-    assert "Buffalo Bills first at 12 wins and 5 losses, qualified for the playoffs." in s
+    assert (
+        "Buffalo Bills first at 12 wins and 5 losses, "
+        "won their division and qualified for the playoffs."
+    ) in s
     assert "Miami Dolphins second at 9 wins and 8 losses, did not qualify for the playoffs." in s
 
 
@@ -605,7 +608,10 @@ async def test_get_standings_postseason_nhl():
     finally:
         await c.aclose()
     assert s.startswith("The NHL is in the playoffs. ")
-    assert "Carolina Hurricanes first at 53 wins and 20 losses, qualified for the playoffs." in s
+    assert (
+        "Carolina Hurricanes first at 53 wins and 20 losses, "
+        "had the best record and qualified for the playoffs."
+    ) in s
     assert "New Jersey Devils second at 42 wins and 37 losses, did not qualify for the playoffs." in s
 
 
@@ -828,5 +834,5 @@ async def test_get_standings_nhl_buffalo_sabres_smoke():
         await c.aclose()
     assert (
         "Buffalo Sabres second at 50 wins and 23 losses, "
-        "qualified for the playoffs"
+        "won their division and qualified for the playoffs"
     ) in s

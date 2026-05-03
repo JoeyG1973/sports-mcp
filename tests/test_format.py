@@ -347,6 +347,32 @@ def test_standings_block_with_qualified_annotation():
     assert no_punctuation_artifacts(s)
 
 
+def test_standings_block_with_division_winner_annotation():
+    rows = [
+        {"name": "Buffalo Sabres", "wins": 50, "losses": 23, "qualification": "division_winner"},
+    ]
+    s = standings_block("Eastern Conference", rows)
+    assert s == (
+        "Eastern Conference. "
+        "Buffalo Sabres first at 50 wins and 23 losses, "
+        "won their division and qualified for the playoffs."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+def test_standings_block_with_best_record_annotation():
+    rows = [
+        {"name": "Carolina Hurricanes", "wins": 53, "losses": 20, "qualification": "best_record"},
+    ]
+    s = standings_block("Eastern Conference", rows)
+    assert s == (
+        "Eastern Conference. "
+        "Carolina Hurricanes first at 53 wins and 20 losses, "
+        "had the best record and qualified for the playoffs."
+    )
+    assert no_punctuation_artifacts(s)
+
+
 def test_standings_block_with_eliminated_annotation():
     rows = [
         {"name": "New Jersey Devils", "wins": 42, "losses": 37, "qualification": "eliminated"},

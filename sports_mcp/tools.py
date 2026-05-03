@@ -279,12 +279,25 @@ def _detect_postseason(standings_data: dict) -> bool:
 
 
 def _qualification_from_clinch(entry: dict) -> str | None:
-    """Translate ESPN's 'clincher' stat into 'qualified', 'eliminated', or None."""
+    """Translate ESPN's 'clincher' stat into a qualification label.
+
+    ESPN distinguishes three positive clinch states that all imply
+    "qualified for the playoffs" but carry different leadership context:
+        x = clinched a playoff berth (wild card or generic qualifier)
+        y = clinched their division (top of their division)
+        z = best record in conference / league
+    'e' means eliminated. Anything else (rare codes like '*') yields None
+    for the safe-fallback path.
+    """
     for stat in entry.get("stats") or []:
         if stat.get("name") == "clincher":
             value = stat.get("displayValue") or ""
-            if value in ("x", "y", "z"):
+            if value == "x":
                 return "qualified"
+            if value == "y":
+                return "division_winner"
+            if value == "z":
+                return "best_record"
             if value == "e":
                 return "eliminated"
             return None
