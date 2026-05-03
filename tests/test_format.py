@@ -277,3 +277,59 @@ def test_final_outcome_line_tie():
     )
     assert s == "The Arsenal and the Chelsea tied 1 to 1."
     assert no_punctuation_artifacts(s)
+
+
+import datetime as _test_dt
+
+from sports_mcp.format import pre_game_line
+
+
+def test_pre_game_line_away(monkeypatch):
+    fixed_now = _test_dt.datetime(2026, 5, 8, 12, 0).astimezone()
+    monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
+    when = _test_dt.datetime(2026, 5, 8, 19, 30).astimezone()
+    s = pre_game_line(
+        team_name="Los Angeles Lakers",
+        opp_name="Boston Celtics",
+        when=when,
+        is_home=False,
+    )
+    assert s == (
+        "The Los Angeles Lakers don't have a live game yet. "
+        "They play the Boston Celtics today at 7 30 PM."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+def test_pre_game_line_home(monkeypatch):
+    fixed_now = _test_dt.datetime(2026, 5, 8, 12, 0).astimezone()
+    monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
+    when = _test_dt.datetime(2026, 5, 8, 20, 0).astimezone()
+    s = pre_game_line(
+        team_name="Los Angeles Lakers",
+        opp_name="Boston Celtics",
+        when=when,
+        is_home=True,
+    )
+    assert s == (
+        "The Los Angeles Lakers don't have a live game yet. "
+        "They host the Boston Celtics today at 8 PM."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+def test_pre_game_line_tomorrow(monkeypatch):
+    fixed_now = _test_dt.datetime(2026, 5, 8, 12, 0).astimezone()
+    monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
+    when = _test_dt.datetime(2026, 5, 9, 19, 30).astimezone()
+    s = pre_game_line(
+        team_name="Los Angeles Lakers",
+        opp_name="Boston Celtics",
+        when=when,
+        is_home=False,
+    )
+    assert s == (
+        "The Los Angeles Lakers don't have a live game yet. "
+        "They play the Boston Celtics tomorrow at 7 30 PM."
+    )
+    assert no_punctuation_artifacts(s)

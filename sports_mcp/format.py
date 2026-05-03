@@ -232,3 +232,23 @@ def final_outcome_line(
     if team_score < opp_score:
         return f"The {team_name} lost to the {opp_name} {team_score} to {opp_score}."
     return f"The {team_name} and the {opp_name} tied {team_score} to {opp_score}."
+
+
+def pre_game_line(
+    team_name: str,
+    opp_name: str,
+    when: _dt.datetime,
+    is_home: bool,
+) -> str:
+    """Compose a TTS-safe pre-game line for a game scheduled later today.
+
+    Names the opponent and the local-time tip-off. "host" if the queried
+    team is the home team, "play" otherwise. Venue is intentionally omitted.
+    """
+    verb = "host" if is_home else "play"
+    date_str = date_phrase(when)
+    time_str = time_phrase(when)
+    return (
+        f"The {team_name} don't have a live game yet. "
+        f"They {verb} the {opp_name} {date_str} at {time_str}."
+    )
