@@ -237,6 +237,43 @@ def _stat_value(entry: dict, name: str) -> int:
     return 0
 
 
+def _detect_offseason(standings_data: dict) -> bool:
+    """Return True if the standings response describes an upcoming season.
+
+    ESPN's standings endpoint returns the most recently completed season's
+    records during a league's offseason; the 'season' block then carries
+    the startDate of the *next* season. If that startDate is in the future,
+    we are in offseason.
+    """
+    season = standings_data.get("season") or {}
+    start_iso = season.get("startDate") or ""
+    if not start_iso:
+        return False
+    parsed = _parse_event_datetime(start_iso)
+    if parsed is None:
+        return False
+    now = _dt.datetime.now(_dt.timezone.utc)
+    return parsed > now
+
+
+def _detect_postseason(standings_data: dict) -> bool:
+    """Return True if any team in the standings has been eliminated.
+
+    ESPN exposes per-team playoff status as a 'clincher' stat. The value
+    'e' means eliminated. A non-empty set of eliminations confirms the
+    regular season is over and postseason is underway. If no entry carries
+    a clincher stat, return False (the league either is mid-regular-season
+    or does not instrument playoffs).
+    """
+    for child in standings_data.get("children") or []:
+        entries = ((child.get("standings") or {}).get("entries")) or []
+        for entry in entries:
+            for stat in entry.get("stats") or []:
+                if stat.get("name") == "clincher" and stat.get("displayValue") == "e":
+                    return True
+    return False
+
+
 def _rows_from_standings_entries(entries: list[dict]) -> list[dict]:
     rows: list[dict] = []
     for e in entries:

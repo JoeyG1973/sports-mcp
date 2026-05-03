@@ -454,3 +454,76 @@ async def test_get_live_score_pre_state_today(monkeypatch):
     assert "play the Boston Celtics" in s
     assert "PM" in s or "AM" in s
     assert "(" not in s and ")" not in s
+
+
+from sports_mcp.tools import _detect_offseason, _detect_postseason
+
+
+def test_detect_offseason_future_start_date():
+    payload = {"season": {"startDate": "2099-08-06T07:00Z"}}
+    assert _detect_offseason(payload) is True
+
+
+def test_detect_offseason_past_start_date():
+    payload = {"season": {"startDate": "2020-08-06T07:00Z"}}
+    assert _detect_offseason(payload) is False
+
+
+def test_detect_offseason_no_season_block():
+    assert _detect_offseason({}) is False
+
+
+def test_detect_offseason_unparseable_date():
+    payload = {"season": {"startDate": "garbage"}}
+    assert _detect_offseason(payload) is False
+
+
+def test_detect_postseason_one_eliminated_team():
+    payload = {
+        "children": [
+            {
+                "standings": {
+                    "entries": [
+                        {"stats": [{"name": "clincher", "displayValue": "x"}]},
+                        {"stats": [{"name": "clincher", "displayValue": "e"}]},
+                    ]
+                }
+            }
+        ]
+    }
+    assert _detect_postseason(payload) is True
+
+
+def test_detect_postseason_no_eliminations():
+    payload = {
+        "children": [
+            {
+                "standings": {
+                    "entries": [
+                        {"stats": [{"name": "clincher", "displayValue": "x"}]},
+                        {"stats": [{"name": "clincher", "displayValue": "y"}]},
+                    ]
+                }
+            }
+        ]
+    }
+    assert _detect_postseason(payload) is False
+
+
+def test_detect_postseason_no_clinch_stat():
+    payload = {
+        "children": [
+            {
+                "standings": {
+                    "entries": [
+                        {"stats": [{"name": "wins", "value": 25}]},
+                    ]
+                }
+            }
+        ]
+    }
+    assert _detect_postseason(payload) is False
+
+
+def test_detect_postseason_empty_payload():
+    assert _detect_postseason({}) is False
