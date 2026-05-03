@@ -108,3 +108,9 @@ def test_resolve_team_unknown_no_close_match():
     m = resolve_team("zzzzzzzzzzzz")
     assert isinstance(m, TeamMatchNone)
     assert m.suggestions == []
+
+
+def test_resolve_arsenal_resolves_to_premier_league():
+    m = resolve_team("Arsenal")
+    assert isinstance(m, TeamMatchOne)
+    assert m.team.league_slug == "soccer/eng.1"

@@ -61,7 +61,7 @@ def emit_team(slug: str, team: dict) -> str:
 async def main() -> None:
     out_lines = [
         '"""Auto-generated team registry. Edit scripts/harvest_teams.py and re-run."""',
-        "from sports_mcp.aliases import TeamInfo",
+        "from sports_mcp._types import TeamInfo",
         "",
         "TEAM_REGISTRY: list[TeamInfo] = [",
     ]

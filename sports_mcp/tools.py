@@ -273,6 +273,29 @@ def _season_phrase(league_block: dict) -> str:
     return type_name
 
 
+def _sanitize_short_detail(short: str) -> str:
+    """Strip TTS-unfriendly punctuation and timezone abbreviations from ESPN's shortDetail."""
+    if not short:
+        return ""
+    cleaned = short.replace("/", " ").replace("(", "").replace(")", "").replace(":", " ")
+    # Timezone abbreviations: replace whole-word matches.
+    tz_map = {
+        " ET": " eastern",
+        " PT": " pacific",
+        " CT": " central",
+        " MT": " mountain",
+        " AKT": " alaska",
+        " HST": " hawaii",
+        " HT": " hawaii",
+    }
+    for abbr, full in tz_map.items():
+        if cleaned.endswith(abbr):
+            cleaned = cleaned[: -len(abbr)] + full
+        else:
+            cleaned = cleaned.replace(abbr + " ", full + " ")
+    return cleaned.strip()
+
+
 def _events_phrase_for_status(events: list[dict]) -> str:
     if not events:
         return ""
@@ -286,9 +309,7 @@ def _events_phrase_for_status(events: list[dict]) -> str:
             continue
         status = comp.get("status", {})
         state = (status.get("type") or {}).get("state")
-        short = (status.get("type") or {}).get("shortDetail") or ""
-        # Strip TTS-unfriendly characters from the ESPN-supplied detail.
-        short = short.replace("/", " ").replace("(", "").replace(")", "")
+        short = _sanitize_short_detail((status.get("type") or {}).get("shortDetail") or "")
         if state == "in":
             tail = "in progress"
         elif state == "post":

@@ -342,3 +342,31 @@ async def test_get_league_status_unreachable():
     finally:
         await c.aclose()
     assert "Couldn't reach ESPN" in s
+
+
+async def test_get_league_status_scheduled_event_has_no_colon_or_et():
+    payload = {
+        "leagues": [{"season": {"type": {"name": "Regular Season"}}}],
+        "events": [
+            {
+                "id": "1",
+                "competitions": [
+                    {
+                        "competitors": [
+                            {"team": {"displayName": "Lakers"}, "score": "0", "homeAway": "away"},
+                            {"team": {"displayName": "Celtics"}, "score": "0", "homeAway": "home"},
+                        ],
+                        "status": {"type": {"state": "pre", "shortDetail": "7:30 PM ET"}},
+                    }
+                ],
+            }
+        ],
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_league_status(c, "NBA")
+    finally:
+        await c.aclose()
+    assert ":" not in s
+    assert " ET" not in s and " ET." not in s
+    assert "eastern" in s
