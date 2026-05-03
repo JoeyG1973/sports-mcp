@@ -107,13 +107,36 @@ async def get_live_score(client: ESPNClient, team: str) -> str:
     period = int(status.get("period") or 0)
     clock = status.get("displayClock") or ""
 
-    if state != "in":
-        return f"The {info.name} do not have a live game right now."
-
     competitors = comp.get("competitors", [])
     home = next((c for c in competitors if c.get("homeAway") == "home"), None)
     away = next((c for c in competitors if c.get("homeAway") == "away"), None)
     if home is None or away is None:
+        return f"The {info.name} do not have a live game right now."
+
+    is_home = str((home.get("team") or {}).get("id")) == info.espn_id
+    team_competitor = home if is_home else away
+    opp_competitor = away if is_home else home
+
+    if state == "post":
+        return fmt.final_outcome_line(
+            team_name=info.name,
+            team_score=int(team_competitor.get("score", 0)),
+            opp_name=opp_competitor["team"]["displayName"],
+            opp_score=int(opp_competitor.get("score", 0)),
+        )
+
+    if state == "pre":
+        when = _parse_event_datetime(event.get("date") or "")
+        if when is None:
+            return f"The {info.name} do not have a live game right now."
+        return fmt.pre_game_line(
+            team_name=info.name,
+            opp_name=opp_competitor["team"]["displayName"],
+            when=when,
+            is_home=is_home,
+        )
+
+    if state != "in":
         return f"The {info.name} do not have a live game right now."
 
     period_text = _period_phrase(league.sport, period, status.get("type") or {})

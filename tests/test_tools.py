@@ -370,3 +370,87 @@ async def test_get_league_status_scheduled_event_has_no_colon_or_et():
     assert ":" not in s
     assert " ET" not in s and " ET." not in s
     assert "eastern" in s
+
+
+async def test_get_live_score_post_state_win():
+    payload = {
+        "events": [
+            {
+                "id": "1",
+                "competitions": [
+                    {
+                        "competitors": [
+                            {"team": {"id": "13", "displayName": "Los Angeles Lakers"}, "score": "91", "homeAway": "away"},
+                            {"team": {"id": "2", "displayName": "Boston Celtics"}, "score": "89", "homeAway": "home"},
+                        ],
+                        "status": {"type": {"state": "post", "description": "Final"}, "period": 4, "displayClock": "0:00"},
+                    }
+                ],
+            }
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_live_score(c, "Lakers")
+    finally:
+        await c.aclose()
+    assert s == "The Los Angeles Lakers beat the Boston Celtics 91 to 89."
+
+
+async def test_get_live_score_post_state_loss():
+    payload = {
+        "events": [
+            {
+                "id": "1",
+                "competitions": [
+                    {
+                        "competitors": [
+                            {"team": {"id": "13", "displayName": "Los Angeles Lakers"}, "score": "89", "homeAway": "away"},
+                            {"team": {"id": "2", "displayName": "Boston Celtics"}, "score": "91", "homeAway": "home"},
+                        ],
+                        "status": {"type": {"state": "post", "description": "Final"}, "period": 4, "displayClock": "0:00"},
+                    }
+                ],
+            }
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_live_score(c, "Lakers")
+    finally:
+        await c.aclose()
+    assert s == "The Los Angeles Lakers lost to the Boston Celtics 89 to 91."
+
+
+async def test_get_live_score_pre_state_today(monkeypatch):
+    import datetime as _test_dt
+    fixed_now = _test_dt.datetime(2099, 12, 25, 12, 0).astimezone()
+    monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
+    payload = {
+        "events": [
+            {
+                "id": "1",
+                "date": "2099-12-26T01:30Z",
+                "competitions": [
+                    {
+                        "competitors": [
+                            {"team": {"id": "13", "displayName": "Los Angeles Lakers"}, "score": "0", "homeAway": "away"},
+                            {"team": {"id": "2", "displayName": "Boston Celtics"}, "score": "0", "homeAway": "home"},
+                        ],
+                        "status": {"type": {"state": "pre", "description": "Scheduled"}, "period": 0, "displayClock": "0:00"},
+                    }
+                ],
+            }
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_live_score(c, "Lakers")
+    finally:
+        await c.aclose()
+    # Lakers are away (id 13 vs home id 2), so verb is "play".
+    # The exact time string depends on host timezone; assert structural pieces.
+    assert "Los Angeles Lakers don't have a live game yet" in s
+    assert "play the Boston Celtics" in s
+    assert "PM" in s or "AM" in s
+    assert "(" not in s and ")" not in s

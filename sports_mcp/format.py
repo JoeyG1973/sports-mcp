@@ -210,3 +210,45 @@ def unknown_league_message(league_text: str, suggestions: list[str]) -> str:
     if not suggestions:
         return f"I don't recognize {league_text}."
     return f"I don't recognize {league_text}. Did you mean {_join_with_or(suggestions)}?"
+
+
+def final_outcome_line(
+    team_name: str,
+    team_score: int,
+    opp_name: str,
+    opp_score: int,
+) -> str:
+    """Compose a TTS-safe final-score narrative from team_name's perspective.
+
+    The queried team's score is always spoken first.
+
+    Examples:
+        win:  "The Lakers beat the Celtics 91 to 89."
+        loss: "The Lakers lost to the Celtics 89 to 91."
+        tie:  "The Lakers and the Celtics tied 1 to 1."
+    """
+    if team_score > opp_score:
+        return f"The {team_name} beat the {opp_name} {team_score} to {opp_score}."
+    if team_score < opp_score:
+        return f"The {team_name} lost to the {opp_name} {team_score} to {opp_score}."
+    return f"The {team_name} and the {opp_name} tied {team_score} to {opp_score}."
+
+
+def pre_game_line(
+    team_name: str,
+    opp_name: str,
+    when: _dt.datetime,
+    is_home: bool,
+) -> str:
+    """Compose a TTS-safe pre-game line for a game scheduled later today.
+
+    Names the opponent and the local-time tip-off. "host" if the queried
+    team is the home team, "play" otherwise. Venue is intentionally omitted.
+    """
+    verb = "host" if is_home else "play"
+    date_str = date_phrase(when)
+    time_str = time_phrase(when)
+    return (
+        f"The {team_name} don't have a live game yet. "
+        f"They {verb} the {opp_name} {date_str} at {time_str}."
+    )
