@@ -103,27 +103,23 @@ the SSE port to the public internet.
 ## Running as a systemd service (Linux)
 
 A starter unit file lives at [`deploy/sports-mcp.service`](deploy/sports-mcp.service).
-It runs `sports-mcp` as a dedicated non-root user under journald with light
-sandboxing (`NoNewPrivileges`, `ProtectSystem=full`, restricted address
-families). Install:
+It's intentionally minimal — runs as root, logs to journald (the default),
+no sandboxing. Suitable for a home-lab deployment on a trusted LAN.
 
 ```bash
 # 1. Clone to /opt/sports-mcp (or edit WorkingDirectory in the unit file).
 sudo git clone https://github.com/JoeyG1973/sports-mcp.git /opt/sports-mcp
+cd /opt/sports-mcp
 
-# 2. Create a dedicated user.
-sudo useradd --system --no-create-home --home-dir /opt/sports-mcp sports-mcp
-sudo chown -R sports-mcp:sports-mcp /opt/sports-mcp
+# 2. Pre-build the venv.
+sudo uv sync
 
-# 3. Pre-build the venv as that user.
-sudo -u sports-mcp uv sync
-
-# 4. Install and start the unit.
-sudo cp /opt/sports-mcp/deploy/sports-mcp.service /etc/systemd/system/
+# 3. Install and start the unit.
+sudo cp deploy/sports-mcp.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now sports-mcp
 
-# 5. Tail logs.
+# 4. Tail logs.
 journalctl -u sports-mcp -f
 ```
 
