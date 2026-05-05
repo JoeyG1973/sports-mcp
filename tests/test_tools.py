@@ -3,6 +3,7 @@
 Each tool is tested with: a happy path, an empty-result path, and an
 ESPN-unreachable path. ESPN responses are mocked; alias resolution is real.
 """
+
 from __future__ import annotations
 
 import json
@@ -12,7 +13,17 @@ import httpx
 import pytest
 
 from sports_mcp.espn import ESPNClient
-from sports_mcp.tools import get_live_score, get_next_game
+from sports_mcp.format import no_punctuation_artifacts
+from sports_mcp.tools import (
+    _all_events_are_future,
+    _detect_offseason,
+    _detect_postseason,
+    _upcoming_matches_phrase,
+    get_league_status,
+    get_live_score,
+    get_next_game,
+    get_standings,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -54,10 +65,22 @@ async def test_get_live_score_no_live_game(monkeypatch):
                 "competitions": [
                     {
                         "competitors": [
-                            {"team": {"id": "13", "displayName": "Los Angeles Lakers"}, "score": "0", "homeAway": "home"},
-                            {"team": {"id": "2", "displayName": "Boston Celtics"}, "score": "0", "homeAway": "away"},
+                            {
+                                "team": {"id": "13", "displayName": "Los Angeles Lakers"},
+                                "score": "0",
+                                "homeAway": "home",
+                            },
+                            {
+                                "team": {"id": "2", "displayName": "Boston Celtics"},
+                                "score": "0",
+                                "homeAway": "away",
+                            },
                         ],
-                        "status": {"type": {"state": "pre", "description": "Scheduled"}, "period": 0, "displayClock": "0:00"},
+                        "status": {
+                            "type": {"state": "pre", "description": "Scheduled"},
+                            "period": 0,
+                            "displayClock": "0:00",
+                        },
                     }
                 ],
             }
@@ -80,10 +103,22 @@ async def test_get_live_score_live_game():
                 "competitions": [
                     {
                         "competitors": [
-                            {"team": {"id": "13", "displayName": "Los Angeles Lakers"}, "score": "89", "homeAway": "away"},
-                            {"team": {"id": "2", "displayName": "Boston Celtics"}, "score": "91", "homeAway": "home"},
+                            {
+                                "team": {"id": "13", "displayName": "Los Angeles Lakers"},
+                                "score": "89",
+                                "homeAway": "away",
+                            },
+                            {
+                                "team": {"id": "2", "displayName": "Boston Celtics"},
+                                "score": "91",
+                                "homeAway": "home",
+                            },
                         ],
-                        "status": {"type": {"state": "in", "description": "In Progress"}, "period": 4, "displayClock": "2:34"},
+                        "status": {
+                            "type": {"state": "in", "description": "In Progress"},
+                            "period": 4,
+                            "displayClock": "2:34",
+                        },
                     }
                 ],
             }
@@ -143,8 +178,14 @@ async def test_get_next_game_with_upcoming():
                 "competitions": [
                     {
                         "competitors": [
-                            {"team": {"id": "13", "displayName": "Los Angeles Lakers"}, "homeAway": "away"},
-                            {"team": {"id": "2", "displayName": "Boston Celtics"}, "homeAway": "home"},
+                            {
+                                "team": {"id": "13", "displayName": "Los Angeles Lakers"},
+                                "homeAway": "away",
+                            },
+                            {
+                                "team": {"id": "2", "displayName": "Boston Celtics"},
+                                "homeAway": "home",
+                            },
                         ],
                         "venue": {"fullName": "TD Garden"},
                         "status": {"type": {"state": "pre"}},
@@ -173,9 +214,6 @@ async def test_get_next_game_espn_unreachable():
     finally:
         await c.aclose()
     assert "Couldn't reach ESPN" in s
-
-
-from sports_mcp.tools import get_standings, get_league_status
 
 
 async def test_get_standings_unknown_league():
@@ -380,10 +418,22 @@ async def test_get_live_score_post_state_win():
                 "competitions": [
                     {
                         "competitors": [
-                            {"team": {"id": "13", "displayName": "Los Angeles Lakers"}, "score": "91", "homeAway": "away"},
-                            {"team": {"id": "2", "displayName": "Boston Celtics"}, "score": "89", "homeAway": "home"},
+                            {
+                                "team": {"id": "13", "displayName": "Los Angeles Lakers"},
+                                "score": "91",
+                                "homeAway": "away",
+                            },
+                            {
+                                "team": {"id": "2", "displayName": "Boston Celtics"},
+                                "score": "89",
+                                "homeAway": "home",
+                            },
                         ],
-                        "status": {"type": {"state": "post", "description": "Final"}, "period": 4, "displayClock": "0:00"},
+                        "status": {
+                            "type": {"state": "post", "description": "Final"},
+                            "period": 4,
+                            "displayClock": "0:00",
+                        },
                     }
                 ],
             }
@@ -405,10 +455,22 @@ async def test_get_live_score_post_state_loss():
                 "competitions": [
                     {
                         "competitors": [
-                            {"team": {"id": "13", "displayName": "Los Angeles Lakers"}, "score": "89", "homeAway": "away"},
-                            {"team": {"id": "2", "displayName": "Boston Celtics"}, "score": "91", "homeAway": "home"},
+                            {
+                                "team": {"id": "13", "displayName": "Los Angeles Lakers"},
+                                "score": "89",
+                                "homeAway": "away",
+                            },
+                            {
+                                "team": {"id": "2", "displayName": "Boston Celtics"},
+                                "score": "91",
+                                "homeAway": "home",
+                            },
                         ],
-                        "status": {"type": {"state": "post", "description": "Final"}, "period": 4, "displayClock": "0:00"},
+                        "status": {
+                            "type": {"state": "post", "description": "Final"},
+                            "period": 4,
+                            "displayClock": "0:00",
+                        },
                     }
                 ],
             }
@@ -424,6 +486,7 @@ async def test_get_live_score_post_state_loss():
 
 async def test_get_live_score_pre_state_today(monkeypatch):
     import datetime as _test_dt
+
     fixed_now = _test_dt.datetime(2099, 12, 25, 12, 0).astimezone()
     monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
     payload = {
@@ -434,10 +497,22 @@ async def test_get_live_score_pre_state_today(monkeypatch):
                 "competitions": [
                     {
                         "competitors": [
-                            {"team": {"id": "13", "displayName": "Los Angeles Lakers"}, "score": "0", "homeAway": "away"},
-                            {"team": {"id": "2", "displayName": "Boston Celtics"}, "score": "0", "homeAway": "home"},
+                            {
+                                "team": {"id": "13", "displayName": "Los Angeles Lakers"},
+                                "score": "0",
+                                "homeAway": "away",
+                            },
+                            {
+                                "team": {"id": "2", "displayName": "Boston Celtics"},
+                                "score": "0",
+                                "homeAway": "home",
+                            },
                         ],
-                        "status": {"type": {"state": "pre", "description": "Scheduled"}, "period": 0, "displayClock": "0:00"},
+                        "status": {
+                            "type": {"state": "pre", "description": "Scheduled"},
+                            "period": 0,
+                            "displayClock": "0:00",
+                        },
                     }
                 ],
             }
@@ -454,9 +529,6 @@ async def test_get_live_score_pre_state_today(monkeypatch):
     assert "play the Boston Celtics" in s
     assert "PM" in s or "AM" in s
     assert "(" not in s and ")" not in s
-
-
-from sports_mcp.tools import _detect_offseason, _detect_postseason
 
 
 def test_detect_offseason_future_start_date():
@@ -612,7 +684,9 @@ async def test_get_standings_postseason_nhl():
         "Carolina Hurricanes first at 53 wins and 20 losses, "
         "had the best record and qualified for the playoffs."
     ) in s
-    assert "New Jersey Devils second at 42 wins and 37 losses, did not qualify for the playoffs." in s
+    assert (
+        "New Jersey Devils second at 42 wins and 37 losses, did not qualify for the playoffs." in s
+    )
 
 
 async def test_get_standings_regular_season_unchanged():
@@ -692,7 +766,11 @@ async def test_get_league_status_scheduled_no_short_detail():
                 "competitions": [
                     {
                         "competitors": [
-                            {"team": {"displayName": "South Africa"}, "score": "0", "homeAway": "away"},
+                            {
+                                "team": {"displayName": "South Africa"},
+                                "score": "0",
+                                "homeAway": "away",
+                            },
                             {"team": {"displayName": "Mexico"}, "score": "0", "homeAway": "home"},
                         ],
                         "status": {"type": {"state": "pre", "shortDetail": "Scheduled"}},
@@ -737,11 +815,6 @@ async def test_get_league_status_world_cup_pre_tournament_fallback():
     )
 
 
-import pytest
-
-from sports_mcp.format import no_punctuation_artifacts
-
-
 @pytest.mark.parametrize(
     "tool_name,arg",
     [
@@ -754,6 +827,7 @@ from sports_mcp.format import no_punctuation_artifacts
 async def test_no_tool_returns_empty_for_unknown_input(tool_name, arg):
     """No tool may return an empty string for an unrecognized league or team."""
     from sports_mcp import tools as t
+
     tool = getattr(t, tool_name)
     c = make_client(lambda r: httpx.Response(200, json={}))
     try:
@@ -776,6 +850,7 @@ async def test_no_tool_returns_empty_for_unknown_input(tool_name, arg):
 async def test_no_tool_returns_empty_when_espn_unreachable(tool_name, arg):
     """No tool may return an empty string when ESPN raises a connection error."""
     from sports_mcp import tools as t
+
     tool = getattr(t, tool_name)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -855,9 +930,6 @@ def _make_pre_event(team_a: str, team_b: str, iso_date: str) -> dict:
     }
 
 
-from sports_mcp.tools import _all_events_are_future, _upcoming_matches_phrase
-
-
 def test_all_events_are_future_empty():
     assert _all_events_are_future([]) is False
 
@@ -873,7 +945,8 @@ def test_all_events_are_future_only_future_events():
 def test_all_events_are_future_mixed_today_and_future():
     """Today's event present → not 'all future'."""
     import datetime as _dt
-    today_iso = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+
+    today_iso = _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%dT%H:%MZ")
     events = [
         _make_pre_event("Lakers", "Celtics", today_iso),
         _make_pre_event("Heat", "Knicks", "2099-06-12T19:00Z"),
@@ -903,6 +976,7 @@ def test_all_events_are_future_event_in_progress():
 
 def test_upcoming_matches_phrase_two_events(monkeypatch):
     import datetime as _dt
+
     fixed_now = _dt.datetime(2099, 6, 1, 12, 0).astimezone()
     monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
     events = [
@@ -918,6 +992,7 @@ def test_upcoming_matches_phrase_two_events(monkeypatch):
 
 def test_upcoming_matches_phrase_three_events_oxford_comma(monkeypatch):
     import datetime as _dt
+
     fixed_now = _dt.datetime(2099, 6, 1, 12, 0).astimezone()
     monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
     events = [
@@ -933,6 +1008,7 @@ def test_upcoming_matches_phrase_three_events_oxford_comma(monkeypatch):
 async def test_get_league_status_world_cup_upcoming_matches(monkeypatch):
     """All events future-dated AND pre-tournament → 'hasn't started yet' framing."""
     import datetime as _dt
+
     fixed_now = _dt.datetime(2099, 6, 1, 12, 0).astimezone()
     monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
     payload = {
@@ -964,6 +1040,7 @@ async def test_get_league_status_world_cup_upcoming_matches(monkeypatch):
 async def test_get_league_status_in_season_with_only_future_events(monkeypatch):
     """All events future but season already started → use season prefix, not 'hasn't started'."""
     import datetime as _dt
+
     fixed_now = _dt.datetime(2099, 6, 1, 12, 0).astimezone()
     monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
     payload = {
@@ -987,6 +1064,5 @@ async def test_get_league_status_in_season_with_only_future_events(monkeypatch):
     finally:
         await c.aclose()
     assert s == (
-        "The NBA is in the regular season. "
-        "Upcoming matches include Lakers at Celtics on June 11."
+        "The NBA is in the regular season. Upcoming matches include Lakers at Celtics on June 11."
     )

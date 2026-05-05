@@ -1,16 +1,25 @@
-from datetime import datetime, timezone
+import datetime as _test_dt
+from datetime import datetime
 
 from sports_mcp.format import (
+    ambiguity_message,
     clock_phrase,
     date_phrase,
+    final_outcome_line,
+    league_status_block,
+    no_punctuation_artifacts,
+    period_phrase_baseball,
     period_phrase_basketball,
     period_phrase_football,
     period_phrase_hockey,
-    period_phrase_baseball,
     period_phrase_soccer,
+    pre_game_line,
     score_line,
+    season_phase_prefix,
+    standings_block,
     time_phrase,
-    no_punctuation_artifacts,
+    unknown_league_message,
+    unknown_team_message,
 )
 
 
@@ -94,7 +103,7 @@ def test_score_line_no_clock():
 
 def test_time_phrase_eastern_pm():
     # 8:00 PM eastern (UTC -4 during DST: 24:00Z; check non-DST too)
-    dt = datetime(2026, 5, 8, 20, 0, tzinfo=timezone.utc)
+    dt = datetime(2026, 5, 8, 20, 0, tzinfo=_test_dt.UTC)
     s = time_phrase(dt)
     # Result depends on host timezone; assert format only
     assert "PM" in s or "AM" in s
@@ -104,6 +113,7 @@ def test_time_phrase_eastern_pm():
 def test_time_phrase_no_minutes_when_on_hour():
     # Build a local-time anchored datetime: 8:00 PM local
     import datetime as _dt
+
     local = _dt.datetime(2026, 5, 8, 20, 0).astimezone()
     s = time_phrase(local)
     assert s == "8 PM"
@@ -111,6 +121,7 @@ def test_time_phrase_no_minutes_when_on_hour():
 
 def test_time_phrase_with_minutes():
     import datetime as _dt
+
     local = _dt.datetime(2026, 5, 8, 19, 30).astimezone()
     s = time_phrase(local)
     assert s == "7 30 PM"
@@ -118,6 +129,7 @@ def test_time_phrase_with_minutes():
 
 def test_date_phrase_today(monkeypatch):
     import datetime as _dt
+
     fixed_now = _dt.datetime(2026, 5, 8, 12, 0).astimezone()
     monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
     same_day = _dt.datetime(2026, 5, 8, 20, 0).astimezone()
@@ -126,6 +138,7 @@ def test_date_phrase_today(monkeypatch):
 
 def test_date_phrase_tomorrow(monkeypatch):
     import datetime as _dt
+
     fixed_now = _dt.datetime(2026, 5, 8, 12, 0).astimezone()
     monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
     next_day = _dt.datetime(2026, 5, 9, 20, 0).astimezone()
@@ -134,6 +147,7 @@ def test_date_phrase_tomorrow(monkeypatch):
 
 def test_date_phrase_weekday_within_week(monkeypatch):
     import datetime as _dt
+
     fixed_now = _dt.datetime(2026, 5, 8, 12, 0).astimezone()
     monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
     in_5_days = _dt.datetime(2026, 5, 13, 20, 0).astimezone()
@@ -143,19 +157,11 @@ def test_date_phrase_weekday_within_week(monkeypatch):
 
 def test_date_phrase_calendar_date_beyond_week(monkeypatch):
     import datetime as _dt
+
     fixed_now = _dt.datetime(2026, 5, 8, 12, 0).astimezone()
     monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
     in_15_days = _dt.datetime(2026, 5, 23, 20, 0).astimezone()
     assert date_phrase(in_15_days) == "May 23"
-
-
-from sports_mcp.format import (
-    ambiguity_message,
-    league_status_block,
-    standings_block,
-    unknown_league_message,
-    unknown_team_message,
-)
 
 
 def test_standings_block_simple_table():
@@ -243,9 +249,6 @@ def test_unknown_league_message():
     assert s == "I don't recognize KHL. Did you mean nhl?"
 
 
-from sports_mcp.format import final_outcome_line
-
-
 def test_final_outcome_line_win():
     s = final_outcome_line(
         team_name="Los Angeles Lakers",
@@ -277,11 +280,6 @@ def test_final_outcome_line_tie():
     )
     assert s == "The Arsenal and the Chelsea tied 1 to 1."
     assert no_punctuation_artifacts(s)
-
-
-import datetime as _test_dt
-
-from sports_mcp.format import pre_game_line
 
 
 def test_pre_game_line_away(monkeypatch):
@@ -399,13 +397,8 @@ def test_standings_block_no_qualification_unchanged():
     assert no_punctuation_artifacts(s)
 
 
-from sports_mcp.format import season_phase_prefix
-
-
 def test_season_phase_prefix_offseason():
-    assert season_phase_prefix("NFL", "offseason") == (
-        "The NFL is in the offseason. Last season. "
-    )
+    assert season_phase_prefix("NFL", "offseason") == ("The NFL is in the offseason. Last season. ")
 
 
 def test_season_phase_prefix_postseason():

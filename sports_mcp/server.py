@@ -10,6 +10,7 @@ canonical pattern in 1.27 is `FastMCP(...).run(transport='sse', ...)`. If
 that signature changes, the alternative is to obtain the Starlette ASGI app
 via `.sse_app()` and run it with uvicorn directly.
 """
+
 from __future__ import annotations
 
 import argparse

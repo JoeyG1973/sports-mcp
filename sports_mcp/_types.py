@@ -3,6 +3,7 @@
 These types are kept in their own module to avoid circular imports between
 aliases.py (the resolvers) and teams_data.py (the auto-generated team list).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,0 +1,30 @@
+version: 2
+
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      runtime:
+        dependency-type: "production"
+      dev:
+        dependency-type: "development"
+    labels:
+      - "dependencies"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - "*"
+    labels:
+      - "dependencies"
+      - "ci"

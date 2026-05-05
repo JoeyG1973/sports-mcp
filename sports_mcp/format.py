@@ -3,6 +3,7 @@
 All public functions return strings safe to read aloud: no parentheses,
 slashes, ampersands, abbreviations, or score-style hyphens.
 """
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -66,7 +67,9 @@ def _quarter_or_overtime(period: int) -> str:
         return f"{ordinal_word(period)} quarter"
     if period == 5:
         return "overtime"
-    return f"{ordinal_word(period - 4)} overtime" if period == 6 else f"overtime period {period - 4}"
+    return (
+        f"{ordinal_word(period - 4)} overtime" if period == 6 else f"overtime period {period - 4}"
+    )
 
 
 def period_phrase_basketball(period: int) -> str:
@@ -181,9 +184,7 @@ def standings_block(label: str, rows: list[dict]) -> str:
         losses = row["losses"]
         wins_word = "win" if wins == 1 else "wins"
         losses_word = "loss" if losses == 1 else "losses"
-        sentence = (
-            f"{row['name']} {rank} at {wins} {wins_word} and {losses} {losses_word}"
-        )
+        sentence = f"{row['name']} {rank} at {wins} {wins_word} and {losses} {losses_word}"
         qualification = row.get("qualification")
         if qualification == "qualified":
             sentence += ", qualified for the playoffs"

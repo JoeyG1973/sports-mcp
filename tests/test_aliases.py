@@ -1,11 +1,9 @@
 from sports_mcp.aliases import (
     LEAGUE_REGISTRY,
-    LeagueInfo,
-    resolve_league,
-    TeamMatch,
     TeamMatchAmbiguous,
     TeamMatchNone,
     TeamMatchOne,
+    resolve_league,
     resolve_team,
 )
 

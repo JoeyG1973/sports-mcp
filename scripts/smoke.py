@@ -6,6 +6,7 @@ pass/fail table. Exits non-zero if any required endpoint fails.
 Usage:
     uv run python scripts/smoke.py
 """
+
 from __future__ import annotations
 
 import asyncio
