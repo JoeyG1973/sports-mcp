@@ -5,6 +5,7 @@ under /apis/v2/ (the 'site' segment is dropped). Hitting the wrong base
 returns either 404s or stub responses. This client routes correctly per
 endpoint type.
 """
+
 from __future__ import annotations
 
 from typing import Any

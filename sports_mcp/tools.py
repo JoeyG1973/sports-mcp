@@ -3,6 +3,7 @@
 Each tool returns a TTS-safe string and never raises. HTTP and slug-map
 errors are translated into prose and logged.
 """
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -54,7 +55,9 @@ def _period_phrase(sport: str, period: int, status_type: dict) -> str:
         return fmt.period_phrase_hockey(period)
     if sport == "baseball":
         # Baseball uses 'period' for inning; half is in description text.
-        desc = (status_type or {}).get("detail", "") + " " + (status_type or {}).get("description", "")
+        desc = (
+            (status_type or {}).get("detail", "") + " " + (status_type or {}).get("description", "")
+        )
         half = "top" if "Top" in desc or "top" in desc else "bottom"
         return fmt.period_phrase_baseball(period, half)
     if sport == "soccer":
@@ -164,7 +167,7 @@ def _parse_event_datetime(iso: str) -> _dt.datetime | None:
 
 def _next_event_for_team(events: list[dict], team_id: str) -> dict | None:
     """Return the soonest future event involving team_id, or None."""
-    now = _dt.datetime.now(_dt.timezone.utc)
+    now = _dt.datetime.now(_dt.UTC)
     candidates: list[tuple[_dt.datetime, dict]] = []
     for event in events:
         when = _parse_event_datetime(event.get("date") or "")
@@ -256,7 +259,7 @@ def _detect_offseason(season_block: dict) -> bool:
     parsed = _parse_event_datetime(start_iso)
     if parsed is None:
         return False
-    now = _dt.datetime.now(_dt.timezone.utc)
+    now = _dt.datetime.now(_dt.UTC)
     return parsed > now
 
 
@@ -374,7 +377,7 @@ async def get_standings(client: ESPNClient, league: str) -> str:
 
 
 def _season_phrase(league_block: dict) -> str:
-    season = (league_block.get("season") or {})
+    season = league_block.get("season") or {}
     type_block = season.get("type") or {}
     type_name = (type_block.get("name") or "").lower().strip()
     if not type_name or "off" in type_name:
@@ -415,7 +418,7 @@ def _all_events_are_future(events: list[dict]) -> bool:
     """
     if not events:
         return False
-    now = _dt.datetime.now(_dt.timezone.utc)
+    now = _dt.datetime.now(_dt.UTC)
     today_local = now.astimezone().date()
     has_future = False
     for event in events:
@@ -491,9 +494,7 @@ def _events_phrase_for_status(events: list[dict]) -> str:
                 tail = "scheduled"
             else:
                 tail = f"scheduled {short_clean}"
-        sentences.append(
-            f"{away['team']['displayName']} at {home['team']['displayName']}, {tail}."
-        )
+        sentences.append(f"{away['team']['displayName']} at {home['team']['displayName']}, {tail}.")
     return " ".join(sentences)
 
 

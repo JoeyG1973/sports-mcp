@@ -6,6 +6,7 @@ Run once during initial setup, and re-run when leagues change rosters
 Usage:
     uv run python scripts/harvest_teams.py > sports_mcp/teams_data.py
 """
+
 from __future__ import annotations
 
 import asyncio
