@@ -26,7 +26,14 @@ uv sync --group dev
 uv run sports-mcp
 ```
 
-The server binds on `0.0.0.0:8000` over SSE.
+The server binds on `0.0.0.0:8000` over SSE by default. Override with
+`--host`/`--port` flags or the `SPORTS_MCP_HOST`/`SPORTS_MCP_PORT`
+environment variables (CLI flags take precedence):
+
+```bash
+uv run sports-mcp --host 127.0.0.1 --port 9000
+SPORTS_MCP_HOST=127.0.0.1 SPORTS_MCP_PORT=9000 uv run sports-mcp
+```
 
 ## Home Assistant configuration
 
