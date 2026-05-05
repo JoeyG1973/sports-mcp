@@ -100,6 +100,36 @@ The four tools then become callable by the voice assistant. No
 authentication is required — deploy on a trusted LAN and do not expose
 the SSE port to the public internet.
 
+## Running as a systemd service (Linux)
+
+A starter unit file lives at [`deploy/sports-mcp.service`](deploy/sports-mcp.service).
+It runs `sports-mcp` as a dedicated non-root user under journald with light
+sandboxing (`NoNewPrivileges`, `ProtectSystem=full`, restricted address
+families). Install:
+
+```bash
+# 1. Clone to /opt/sports-mcp (or edit WorkingDirectory in the unit file).
+sudo git clone https://github.com/JoeyG1973/sports-mcp.git /opt/sports-mcp
+
+# 2. Create a dedicated user.
+sudo useradd --system --no-create-home --home-dir /opt/sports-mcp sports-mcp
+sudo chown -R sports-mcp:sports-mcp /opt/sports-mcp
+
+# 3. Pre-build the venv as that user.
+sudo -u sports-mcp uv sync
+
+# 4. Install and start the unit.
+sudo cp /opt/sports-mcp/deploy/sports-mcp.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now sports-mcp
+
+# 5. Tail logs.
+journalctl -u sports-mcp -f
+```
+
+If `uv` lives somewhere other than `/usr/local/bin/uv`, update `ExecStart`
+in the unit file (`command -v uv` shows the path).
+
 ## Compatibility
 
 | Component | Tested with |
