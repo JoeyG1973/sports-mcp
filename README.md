@@ -5,35 +5,79 @@
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![MCP 1.27+](https://img.shields.io/badge/mcp-1.27+-8A2BE2.svg)](https://modelcontextprotocol.io/)
 
-An MCP server that wraps ESPN's public API and exposes four sports tools to
-Home Assistant over SSE.
+Ask Home Assistant Voice "what's the score of the Lakers game?" and have it
+answer in plain English. `sports-mcp` is a small MCP server that wraps
+ESPN's public API and exposes four read-only tools tuned for text-to-speech:
+no parens, no slashes, no ampersands, no abbreviations a TTS engine
+mispronounces — just sentences a voice assistant can read back cleanly.
 
-## Tools
+## What it does
 
-- `live_score(team)` — current score and game state for a team's live game.
-- `next_game(team)` — opponent, date, time, and venue of a team's next game.
-- `standings(league)` — TTS-safe standings table for a league.
-- `league_status(league)` — season context plus today's slate.
+Four tools, all addressed by friendly names ("Lakers", "Premier League"):
 
-Inputs are friendly names (e.g., "Lakers", "Premier League"); the server
-resolves them to ESPN identifiers internally. Outputs are TTS-safe natural
-language (no parens, slashes, or ampersands).
+| Tool | What it returns |
+|---|---|
+| `live_score(team)` | The current score and game state for a team's live game. |
+| `next_game(team)` | The team's next scheduled game with opponent, date, time, and venue. |
+| `standings(league)` | A TTS-safe standings table with division-winner and best-record annotations, plus offseason / postseason context. |
+| `league_status(league)` | Today's slate plus the season phase (regular season, playoffs, offseason, tournament). |
+
+The server resolves friendly names to ESPN identifiers internally, returns
+fuzzy suggestions on near-misses, and falls back gracefully when ESPN
+returns empty payloads or when a league is between seasons.
+
+## Example output
+
+These are real strings the server emits (lifted from the test fixtures):
+
+```
+> live_score("Lakers")
+Lakers 89, Celtics 91, fourth quarter, 2 minutes 34 seconds remaining.
+
+> next_game("Lakers")
+The Los Angeles Lakers don't have a live game yet.
+They host the Boston Celtics today at 8 PM.
+
+> standings("Eastern Conference")
+Eastern Conference.
+Boston Celtics first at 52 wins and 18 losses.
+Milwaukee Bucks second at 48 wins and 22 losses.
+
+> league_status("NBA")
+The NBA is in the regular season, week 12.
+Lakers at Celtics, fourth quarter. Heat at Knicks, scheduled 7 30 PM.
+
+> league_status("NFL")        # offseason
+The NFL is in the offseason. No games today.
+
+> live_score("Giants")        # ambiguous
+Giants is ambiguous. Did you mean the NFL Giants or the MLB Giants?
+
+> live_score("Lkaers")        # typo
+I don't recognize Lkaers. Did you mean lakers or clippers?
+```
 
 ## Supported leagues
 
 NFL, NBA, MLB, NHL, English Premier League, MLS, FIFA World Cup,
 UEFA Champions League.
 
-## Run
+## Quickstart
 
 ```bash
+git clone https://github.com/JoeyG1973/sports-mcp.git
+cd sports-mcp
 uv sync --group dev
 uv run sports-mcp
 ```
 
-The server binds on `0.0.0.0:8000` over SSE by default. Override with
-`--host`/`--port` flags or the `SPORTS_MCP_HOST`/`SPORTS_MCP_PORT`
-environment variables (CLI flags take precedence):
+Requires Python 3.13+ and the [uv](https://github.com/astral-sh/uv)
+package manager. The server binds on `0.0.0.0:8000` over SSE by default.
+
+### Custom bind address
+
+Override with `--host`/`--port` flags or the `SPORTS_MCP_HOST` /
+`SPORTS_MCP_PORT` environment variables (CLI flags take precedence):
 
 ```bash
 uv run sports-mcp --host 127.0.0.1 --port 9000
@@ -42,23 +86,37 @@ SPORTS_MCP_HOST=127.0.0.1 SPORTS_MCP_PORT=9000 uv run sports-mcp
 
 ## Home Assistant configuration
 
-Add the MCP client integration in Home Assistant. Configure the SSE URL:
+1. In Home Assistant, install the **Model Context Protocol** integration
+   (Settings → Devices & Services → Add Integration → search "MCP").
+2. Configure it with the SSE URL of your `sports-mcp` instance:
 
-```
-http://<sports-mcp-host>:8000/sse
-```
+   ```
+   http://<sports-mcp-host>:8000/sse
+   ```
 
-No authentication is required; deploy on a trusted LAN.
+3. Expose the integration to **Assist** so Voice can call the tools.
+
+The four tools then become callable by the voice assistant. No
+authentication is required — deploy on a trusted LAN and do not expose
+the SSE port to the public internet.
+
+## Compatibility
+
+| Component | Tested with |
+|---|---|
+| Python | 3.13 |
+| MCP SDK | 1.27+ |
+| ESPN API | site/v2 (public, undocumented) |
 
 ## Development
 
-Run tests:
-
 ```bash
-uv run pytest -v
+uv run pytest -v               # 130 tests, runs in well under a second
+uv run ruff check .            # lint
+uv run ruff format --check .   # format check
 ```
 
-Smoke-test live ESPN slugs:
+Smoke-test against live ESPN (catches slug-level breakage):
 
 ```bash
 uv run python scripts/smoke.py
@@ -70,11 +128,20 @@ Re-harvest team data when leagues change rosters:
 uv run python scripts/harvest_teams.py > sports_mcp/teams_data.py
 ```
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the PR flow.
+
 ## Limitations
 
 ESPN's API is undocumented and unsupported. Endpoints can change without
 notice. The smoke script catches slug-level breakage; the test suite uses
 captured fixtures and won't notice schema changes.
+
+This project is not affiliated with or endorsed by ESPN.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for the threat model and how to report
+vulnerabilities privately.
 
 ## License
 
