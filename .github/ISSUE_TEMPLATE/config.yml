@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/JoeyG1973/sports-mcp/security/advisories/new
+    about: Report security issues privately, not via public issues.
+  - name: ESPN API caveats
+    url: https://github.com/JoeyG1973/sports-mcp#limitations
+    about: ESPN's API is undocumented. Read the limitations section before filing breakage reports.
