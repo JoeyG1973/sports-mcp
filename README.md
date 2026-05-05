@@ -1,5 +1,6 @@
 # sports-mcp
 
+[![tests](https://github.com/JoeyG1973/sports-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/JoeyG1973/sports-mcp/actions/workflows/tests.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![MCP 1.27+](https://img.shields.io/badge/mcp-1.27+-8A2BE2.svg)](https://modelcontextprotocol.io/)
