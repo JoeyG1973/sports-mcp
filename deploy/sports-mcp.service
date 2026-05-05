@@ -1,0 +1,45 @@
+[Unit]
+Description=sports-mcp - MCP server wrapping ESPN's public API for Home Assistant Voice
+Documentation=https://github.com/JoeyG1973/sports-mcp
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+
+# Run as a non-root user that owns the working directory.
+# Create with: sudo useradd --system --no-create-home --home-dir /opt/sports-mcp sports-mcp
+User=sports-mcp
+Group=sports-mcp
+WorkingDirectory=/opt/sports-mcp
+
+# Optional bind overrides. Defaults are 0.0.0.0:8000.
+# Environment=SPORTS_MCP_HOST=0.0.0.0
+# Environment=SPORTS_MCP_PORT=8000
+
+# Use the absolute path to uv. Find yours with: command -v uv
+# `--no-sync` skips the lockfile-vs-venv check on each start so launches
+# are deterministic; re-run `uv sync` manually after pulling updates.
+ExecStart=/usr/local/bin/uv run --no-sync sports-mcp
+
+Restart=on-failure
+RestartSec=5
+
+# Logs go to journald. View with: journalctl -u sports-mcp -f
+StandardOutput=journal
+StandardError=journal
+
+# Light sandboxing. The process never writes to disk at runtime; the
+# in-memory TTL cache and journald-bound logs are all the state it has.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
