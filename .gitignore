@@ -19,3 +19,11 @@ wheels/
 # Coverage
 .coverage
 htmlcov/
+
+# Secrets / local env
+.env
+.env.*
+.envrc
+
+# Local agent state
+.claude/

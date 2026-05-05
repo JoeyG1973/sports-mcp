@@ -70,3 +70,7 @@ uv run python scripts/harvest_teams.py > sports_mcp/teams_data.py
 ESPN's API is undocumented and unsupported. Endpoints can change without
 notice. The smoke script catches slug-level breakage; the test suite uses
 captured fixtures and won't notice schema changes.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
