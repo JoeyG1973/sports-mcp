@@ -157,3 +157,62 @@ def test_resolve_team_generic_national_team_phrase_any_country():
 
 def test_resolve_team_curly_apostrophe_normalized():
     _assert_usmnt(resolve_team("United States Men’s National Team"))
+
+
+def test_resolve_team_usa_natural_voice_variants():
+    # Surface forms the voice model emits for the USMNT.
+    _assert_usmnt(resolve_team("USA mens soccer"))
+    _assert_usmnt(resolve_team("US mens national team"))
+    _assert_usmnt(resolve_team("USA men's soccer team"))
+    _assert_usmnt(resolve_team("United States national soccer team"))
+
+
+def test_resolve_team_no_descriptive_suffix_pollution():
+    # The bug: "US mens national team" fuzzy-locked onto the "national team"
+    # suffix and offered unrelated countries. It must resolve, not suggest.
+    m = resolve_team("US mens national team")
+    assert isinstance(m, TeamMatchOne)
+    assert m.team.espn_id == "660"
+
+
+def test_resolve_team_bare_national_team_phrase_no_bogus_country():
+    # A phrase with no country must NOT resolve to or suggest a random country.
+    m = resolve_team("national team")
+    assert isinstance(m, TeamMatchNone)
+    assert not any("national team" in s for s in m.suggestions)
+
+
+def _assert_country(m, name):
+    assert isinstance(m, TeamMatchOne), m
+    assert m.team.league_slug == "soccer/fifa.world"
+    assert m.team.name == name
+
+
+def test_resolve_team_country_alternate_cabo_verde():
+    _assert_country(resolve_team("Cabo Verde"), "Cape Verde")
+
+
+def test_resolve_team_country_alternate_cote_divoire():
+    _assert_country(resolve_team("Côte d'Ivoire"), "Ivory Coast")
+    _assert_country(resolve_team("Cote d'Ivoire"), "Ivory Coast")
+
+
+def test_resolve_team_country_alternate_korea_republic():
+    _assert_country(resolve_team("Korea Republic"), "South Korea")
+
+
+def test_resolve_team_country_alternate_turkey():
+    _assert_country(resolve_team("Turkey"), "Türkiye")
+    _assert_country(resolve_team("Turkiye"), "Türkiye")
+
+
+def test_resolve_team_country_alternate_czech_republic():
+    _assert_country(resolve_team("Czech Republic"), "Czechia")
+
+
+def test_resolve_team_country_name_still_resolves():
+    # Regression: canonical country names and other countries' descriptive
+    # phrasings keep working.
+    _assert_country(resolve_team("Spain"), "Spain")
+    _assert_country(resolve_team("Cape Verde"), "Cape Verde")
+    _assert_country(resolve_team("Brazil national team"), "Brazil")
