@@ -230,6 +230,102 @@ async def get_next_game(client: ESPNClient, team: str) -> str:
     return sentence + "."
 
 
+def _competitor_score(competitor: dict) -> int:
+    """Read a competitor's score across ESPN's two score shapes.
+
+    The scoreboard endpoint returns score as a string ("89"); the
+    team_schedule endpoint returns a dict ({"value": 89.0, ...}). Both
+    collapse to an int here, defaulting to 0 on missing or unparseable data.
+    """
+    score = competitor.get("score")
+    if isinstance(score, dict):
+        score = score.get("value", score.get("displayValue"))
+    try:
+        return int(float(score))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _completed_events_for_team(events: list[dict], team_id: str) -> list[dict]:
+    """Return completed (post-state) events involving team_id, newest first."""
+    candidates: list[tuple[_dt.datetime, dict]] = []
+    for event in events:
+        comp = _competition_of_event(event)
+        state = ((comp.get("status") or {}).get("type") or {}).get("state")
+        if state != "post":
+            continue
+        if not any(
+            str((c.get("team") or {}).get("id")) == team_id for c in comp.get("competitors", [])
+        ):
+            continue
+        when = _parse_event_datetime(event.get("date") or "")
+        # Events with no parseable date sort last but are still reportable.
+        candidates.append((when or _dt.datetime.min.replace(tzinfo=_dt.UTC), event))
+    candidates.sort(key=lambda kv: kv[0], reverse=True)
+    return [event for _, event in candidates]
+
+
+def _competition_phrase(event: dict, league: LeagueInfo | None) -> str:
+    """Compose a TTS-safe 'League round' phrase, e.g. 'World Cup group stage'.
+
+    Falls back to just the league name when ESPN supplies no round text, or
+    to an empty string when neither is available.
+    """
+    comp = _competition_of_event(event)
+    round_text = ((comp.get("type") or {}).get("text") or "").strip()
+    league_name = league.name if league else ""
+    if league_name and round_text:
+        return f"{league_name} {round_text.lower()}"
+    return league_name or round_text
+
+
+async def get_recent_results(client: ESPNClient, team: str, count: int = 1) -> str:
+    match = resolve_team(team)
+    if isinstance(match, TeamMatchNone):
+        return fmt.unknown_team_message(team, match.suggestions)
+    if isinstance(match, TeamMatchAmbiguous):
+        return fmt.ambiguity_message(team, _ambiguity_candidates(match.teams))
+    assert isinstance(match, TeamMatchOne)
+    info = match.team
+
+    try:
+        data = await client.team_schedule(info.league_slug, info.espn_id)
+    except httpx.HTTPError as e:
+        log.warning("team_schedule fetch failed: %s", e)
+        return ESPN_UNREACHABLE
+
+    completed = _completed_events_for_team(data.get("events") or [], info.espn_id)
+    if not completed:
+        return f"The {info.name} have no recent completed games."
+
+    count = max(1, min(count, 5))
+    league = _league_for_slug(info.league_slug)
+    lines: list[str] = []
+    for event in completed[:count]:
+        comp = _competition_of_event(event)
+        competitors = comp.get("competitors", [])
+        home = next((c for c in competitors if c.get("homeAway") == "home"), None)
+        away = next((c for c in competitors if c.get("homeAway") == "away"), None)
+        if home is None or away is None:
+            continue
+        is_home = str((home.get("team") or {}).get("id")) == info.espn_id
+        team_competitor = home if is_home else away
+        opp_competitor = away if is_home else home
+        lines.append(
+            fmt.recent_result_line(
+                team_name=info.name,
+                team_score=_competitor_score(team_competitor),
+                opp_name=opp_competitor["team"]["displayName"],
+                opp_score=_competitor_score(opp_competitor),
+                when=_parse_event_datetime(event.get("date") or ""),
+                competition=_competition_phrase(event, league),
+            )
+        )
+    if not lines:
+        return f"The {info.name} have no recent completed games."
+    return " ".join(lines)
+
+
 def _stat_value(entry: dict, name: str) -> int:
     for stat in entry.get("stats", []):
         if stat.get("name") == name:

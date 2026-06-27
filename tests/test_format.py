@@ -14,6 +14,7 @@ from sports_mcp.format import (
     period_phrase_hockey,
     period_phrase_soccer,
     pre_game_line,
+    recent_result_line,
     score_line,
     season_phase_prefix,
     standings_block,
@@ -330,6 +331,63 @@ def test_pre_game_line_tomorrow(monkeypatch):
         "The Los Angeles Lakers don't have a live game yet. "
         "They play the Boston Celtics tomorrow at 7 30 PM."
     )
+    assert no_punctuation_artifacts(s)
+
+
+def test_recent_result_line_loss_with_date_and_competition():
+    when = _test_dt.datetime(2026, 6, 25, 19, 0).astimezone()
+    s = recent_result_line(
+        team_name="United States",
+        team_score=2,
+        opp_name="Türkiye",
+        opp_score=3,
+        when=when,
+        competition="World Cup group stage",
+    )
+    assert s == (
+        "The United States lost to the Türkiye 2 to 3 on June 25 in the World Cup group stage."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+def test_recent_result_line_win_with_date_and_competition():
+    when = _test_dt.datetime(2026, 6, 25, 19, 0).astimezone()
+    s = recent_result_line(
+        team_name="United States",
+        team_score=3,
+        opp_name="Paraguay",
+        opp_score=1,
+        when=when,
+        competition="World Cup group stage",
+    )
+    assert s == (
+        "The United States beat the Paraguay 3 to 1 on June 25 in the World Cup group stage."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+def test_recent_result_line_without_competition():
+    when = _test_dt.datetime(2026, 6, 25, 19, 0).astimezone()
+    s = recent_result_line(
+        team_name="Los Angeles Lakers",
+        team_score=107,
+        opp_name="Houston Rockets",
+        opp_score=99,
+        when=when,
+    )
+    assert s == "The Los Angeles Lakers beat the Houston Rockets 107 to 99 on June 25."
+    assert no_punctuation_artifacts(s)
+
+
+def test_recent_result_line_without_date():
+    s = recent_result_line(
+        team_name="Arsenal",
+        team_score=1,
+        opp_name="Chelsea",
+        opp_score=1,
+        competition="Premier League",
+    )
+    assert s == "The Arsenal and the Chelsea tied 1 to 1 in the Premier League."
     assert no_punctuation_artifacts(s)
 
 

@@ -264,6 +264,31 @@ def final_outcome_line(
     return f"The {team_name} and the {opp_name} tied {team_score} to {opp_score}."
 
 
+def recent_result_line(
+    team_name: str,
+    team_score: int,
+    opp_name: str,
+    opp_score: int,
+    when: _dt.datetime | None = None,
+    competition: str = "",
+) -> str:
+    """Compose a TTS-safe completed-game narrative from team_name's perspective.
+
+    Extends final_outcome_line with the game date and, when known, the
+    competition or round. The queried team's score is always spoken first.
+
+    Example:
+        "The United States lost to the Türkiye 2 to 3 on June 25 in the World
+        Cup group stage."
+    """
+    sentence = final_outcome_line(team_name, team_score, opp_name, opp_score).rstrip(".")
+    if when is not None:
+        sentence = f"{sentence} on {date_phrase(when)}"
+    if competition:
+        sentence = f"{sentence} in the {competition}"
+    return sentence + "."
+
+
 def pre_game_line(
     team_name: str,
     opp_name: str,

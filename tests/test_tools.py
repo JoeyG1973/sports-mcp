@@ -22,6 +22,7 @@ from sports_mcp.tools import (
     get_league_status,
     get_live_score,
     get_next_game,
+    get_recent_results,
     get_standings,
 )
 
@@ -820,6 +821,7 @@ async def test_get_league_status_world_cup_pre_tournament_fallback():
     [
         ("get_live_score", "Quidditch United"),
         ("get_next_game", "Quidditch United"),
+        ("get_recent_results", "Quidditch United"),
         ("get_standings", "Quidditch"),
         ("get_league_status", "Quidditch"),
     ],
@@ -843,6 +845,7 @@ async def test_no_tool_returns_empty_for_unknown_input(tool_name, arg):
     [
         ("get_live_score", "Lakers"),
         ("get_next_game", "Lakers"),
+        ("get_recent_results", "Lakers"),
         ("get_standings", "NBA"),
         ("get_league_status", "NBA"),
     ],
@@ -911,6 +914,204 @@ async def test_get_standings_nhl_buffalo_sabres_smoke():
         "Buffalo Sabres second at 50 wins and 23 losses, "
         "won their division and qualified for the playoffs"
     ) in s
+
+
+def _make_completed_event(
+    *,
+    team_id: str,
+    team_name: str,
+    team_score,
+    opp_id: str,
+    opp_name: str,
+    opp_score,
+    iso_date: str,
+    round_text: str = "",
+    team_is_home: bool = True,
+) -> dict:
+    """Build a synthetic completed (post-state) schedule event.
+
+    Scores are encoded as ESPN's team_schedule shape (a dict with 'value'
+    and 'displayValue') to mirror the real endpoint.
+    """
+
+    def competitor(cid, name, score, home):
+        return {
+            "team": {"id": cid, "displayName": name},
+            "score": {"value": float(score), "displayValue": str(score)},
+            "homeAway": "home" if home else "away",
+            "winner": score > (opp_score if cid == team_id else team_score),
+        }
+
+    team_c = competitor(team_id, team_name, team_score, team_is_home)
+    opp_c = competitor(opp_id, opp_name, opp_score, not team_is_home)
+    comp = {
+        "competitors": [team_c, opp_c],
+        "status": {"type": {"state": "post", "completed": True, "description": "Final"}},
+    }
+    if round_text:
+        comp["type"] = {"text": round_text}
+    return {"id": iso_date, "date": iso_date, "competitions": [comp]}
+
+
+async def test_get_recent_results_unknown_team():
+    c = make_client(lambda r: httpx.Response(200, json={}))
+    try:
+        s = await get_recent_results(c, "Quidditch United")
+    finally:
+        await c.aclose()
+    assert "I don't recognize" in s
+
+
+async def test_get_recent_results_espn_unreachable():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom")
+
+    c = make_client(handler)
+    try:
+        s = await get_recent_results(c, "United States")
+    finally:
+        await c.aclose()
+    assert "Couldn't reach ESPN" in s
+
+
+async def test_get_recent_results_none_found():
+    # Only future (pre-state) events — no completed game to report.
+    payload = {
+        "events": [
+            _make_pre_event("United States", "Paraguay", "2099-07-01T19:00Z"),
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_recent_results(c, "United States")
+    finally:
+        await c.aclose()
+    assert "United States" in s
+    assert "no recent completed" in s.lower()
+    assert no_punctuation_artifacts(s)
+
+
+async def test_get_recent_results_most_recent_completed(monkeypatch):
+    import datetime as _dt
+
+    fixed_now = _dt.datetime(2026, 6, 27, 12, 0).astimezone()
+    monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
+    payload = {
+        "events": [
+            _make_completed_event(
+                team_id="660",
+                team_name="United States",
+                team_score=2,
+                opp_id="1",
+                opp_name="Türkiye",
+                opp_score=3,
+                iso_date="2026-06-25T19:00Z",
+                round_text="Group Stage",
+            ),
+            _make_completed_event(
+                team_id="660",
+                team_name="United States",
+                team_score=3,
+                opp_id="2",
+                opp_name="Paraguay",
+                opp_score=1,
+                iso_date="2026-06-19T19:00Z",
+                round_text="Group Stage",
+            ),
+            _make_pre_event("United States", "Belgium", "2099-07-01T19:00Z"),
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_recent_results(c, "United States")
+    finally:
+        await c.aclose()
+    # Most recent completed game is the June 25 loss, not the June 19 win.
+    assert s == (
+        "The United States lost to the Türkiye 2 to 3 on June 25 in the World Cup group stage."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+async def test_get_recent_results_count_two(monkeypatch):
+    import datetime as _dt
+
+    fixed_now = _dt.datetime(2026, 6, 27, 12, 0).astimezone()
+    monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
+    payload = {
+        "events": [
+            _make_completed_event(
+                team_id="660",
+                team_name="United States",
+                team_score=2,
+                opp_id="1",
+                opp_name="Türkiye",
+                opp_score=3,
+                iso_date="2026-06-25T19:00Z",
+                round_text="Group Stage",
+            ),
+            _make_completed_event(
+                team_id="660",
+                team_name="United States",
+                team_score=3,
+                opp_id="2",
+                opp_name="Paraguay",
+                opp_score=1,
+                iso_date="2026-06-19T19:00Z",
+                round_text="Group Stage",
+            ),
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_recent_results(c, "United States", count=2)
+    finally:
+        await c.aclose()
+    # Most recent first, then the prior game.
+    assert s.index("Türkiye") < s.index("Paraguay")
+    assert "lost to the Türkiye 2 to 3 on June 25" in s
+    assert "beat the Paraguay 3 to 1 on June 19" in s
+    assert no_punctuation_artifacts(s)
+
+
+async def test_get_recent_results_string_scores(monkeypatch):
+    """Scoreboard-shape string scores must also work (not only dict scores)."""
+    import datetime as _dt
+
+    fixed_now = _dt.datetime(2026, 6, 27, 12, 0).astimezone()
+    monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
+    payload = {
+        "events": [
+            {
+                "id": "1",
+                "date": "2026-06-25T19:00Z",
+                "competitions": [
+                    {
+                        "competitors": [
+                            {
+                                "team": {"id": "13", "displayName": "Los Angeles Lakers"},
+                                "score": "107",
+                                "homeAway": "home",
+                            },
+                            {
+                                "team": {"id": "99", "displayName": "Houston Rockets"},
+                                "score": "99",
+                                "homeAway": "away",
+                            },
+                        ],
+                        "status": {"type": {"state": "post", "description": "Final"}},
+                    }
+                ],
+            }
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_recent_results(c, "Lakers")
+    finally:
+        await c.aclose()
+    assert "The Los Angeles Lakers beat the Houston Rockets 107 to 99 on June 25" in s
+    assert no_punctuation_artifacts(s)
 
 
 def _make_pre_event(team_a: str, team_b: str, iso_date: str) -> dict:
