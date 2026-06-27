@@ -118,6 +118,37 @@ class TeamMatchNone:
 TeamMatch = TeamMatchOne | TeamMatchAmbiguous | TeamMatchNone
 
 
+# League slugs whose teams are national sides (countries), not clubs.
+_NATIONAL_TEAM_SLUGS = frozenset({"soccer/fifa.world"})
+
+# Colloquial names ESPN's team feed does not supply, keyed by espn_id. The
+# harvested aliases for a national side are only the country name and FIFA
+# abbreviation (e.g. 'united states', 'usa'); voice users also say acronyms
+# like "USMNT". Add such forms here, not in the auto-generated teams_data.py.
+NATIONAL_TEAM_NICKNAMES: dict[str, tuple[str, ...]] = {
+    "660": ("usmnt", "us", "team usa"),  # United States men's national team
+}
+
+
+def _national_team_extra_aliases(t: TeamInfo) -> set[str]:
+    """Synthesize natural-language aliases for a national team.
+
+    Generic "<country> national team" / "<country> men" phrasings work for
+    any country, so spoken queries like "United States men's national team"
+    resolve without per-country curation. Acronyms ESPN omits (USMNT) come
+    from NATIONAL_TEAM_NICKNAMES.
+    """
+    name = t.name.lower()
+    extras = {
+        f"{name} national team",
+        f"{name} men's national team",
+        f"{name} mens national team",
+        f"{name} men",
+    }
+    extras.update(NATIONAL_TEAM_NICKNAMES.get(t.espn_id, ()))
+    return extras
+
+
 def _build_team_index() -> dict[str, list[TeamInfo]]:
     """Build the alias -> [TeamInfo] index, deduplicating by (sport, espn_id).
 
@@ -127,6 +158,9 @@ def _build_team_index() -> dict[str, list[TeamInfo]]:
     and soccer/uefa.champions (UCL). Only the first occurrence per sport is
     kept. Because LEAGUE_REGISTRY lists domestic leagues (EPL, MLS) before
     tournament leagues (UCL, World Cup), the domestic entry wins.
+
+    National-team entries get extra natural-language aliases (see
+    _national_team_extra_aliases) so spoken forms like "USMNT" resolve.
     """
     seen_sport_ids: set[tuple[str, str]] = set()
     index: dict[str, list[TeamInfo]] = {}
@@ -136,7 +170,10 @@ def _build_team_index() -> dict[str, list[TeamInfo]]:
         if key in seen_sport_ids:
             continue
         seen_sport_ids.add(key)
-        for alias in t.aliases:
+        aliases = set(t.aliases)
+        if t.league_slug in _NATIONAL_TEAM_SLUGS:
+            aliases |= _national_team_extra_aliases(t)
+        for alias in aliases:
             index.setdefault(alias, []).append(t)
     return index
 
@@ -160,8 +197,12 @@ def resolve_team(
     For unknown aliases, return TeamMatchNone with up to three close
     suggestions via difflib.
     """
-    key = text.strip().lower()
+    key = text.strip().lower().replace("’", "'")
     matches = TEAMS.get(key, [])
+    if not matches and key.startswith("the "):
+        # Voice queries often include a leading article ("the USA").
+        key = key[4:]
+        matches = TEAMS.get(key, [])
 
     if prefer_league is not None and matches:
         in_league = [t for t in matches if t.league_slug == prefer_league]

@@ -112,3 +112,48 @@ def test_resolve_arsenal_resolves_to_premier_league():
     m = resolve_team("Arsenal")
     assert isinstance(m, TeamMatchOne)
     assert m.team.league_slug == "soccer/eng.1"
+
+
+def _assert_usmnt(m):
+    assert isinstance(m, TeamMatchOne), m
+    assert m.team.espn_id == "660"
+    assert m.team.league_slug == "soccer/fifa.world"
+
+
+def test_resolve_team_usa_baseline_still_works():
+    _assert_usmnt(resolve_team("USA"))
+    _assert_usmnt(resolve_team("United States"))
+
+
+def test_resolve_team_usmnt_acronym():
+    _assert_usmnt(resolve_team("USMNT"))
+
+
+def test_resolve_team_national_team_full_name():
+    _assert_usmnt(resolve_team("United States Men's National Team"))
+
+
+def test_resolve_team_national_team_full_name_no_apostrophe():
+    _assert_usmnt(resolve_team("United States Mens National Team"))
+
+
+def test_resolve_team_curated_nicknames():
+    _assert_usmnt(resolve_team("US"))
+    _assert_usmnt(resolve_team("Team USA"))
+
+
+def test_resolve_team_strips_leading_the_article():
+    _assert_usmnt(resolve_team("the USA"))
+
+
+def test_resolve_team_generic_national_team_phrase_any_country():
+    # The generic "<country> national team" phrasing works for any country,
+    # not just hand-curated ones.
+    m = resolve_team("Brazil national team")
+    assert isinstance(m, TeamMatchOne)
+    assert m.team.league_slug == "soccer/fifa.world"
+    assert m.team.name == "Brazil"
+
+
+def test_resolve_team_curly_apostrophe_normalized():
+    _assert_usmnt(resolve_team("United States Men’s National Team"))
