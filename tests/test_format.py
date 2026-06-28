@@ -3,6 +3,7 @@ from datetime import datetime
 
 from sports_mcp.format import (
     ambiguity_message,
+    champion_line,
     clock_phrase,
     date_phrase,
     final_outcome_line,
@@ -393,6 +394,37 @@ def test_recent_result_line_today_has_no_on_prefix(monkeypatch):
     )
     assert "on today" not in s
     assert s == "The New York Yankees lost to the Boston Red Sox 1 to 4 today in the MLB."
+    assert no_punctuation_artifacts(s)
+
+
+def test_champion_line_decisive_score():
+    when = _test_dt.datetime(2026, 6, 13, 20, 0).astimezone()
+    s = champion_line(
+        champion="New York Knicks",
+        championship="the NBA championship",
+        opponent="San Antonio Spurs",
+        champ_score=94,
+        opp_score=90,
+        when=when,
+    )
+    assert s == (
+        "The New York Knicks won the NBA championship, "
+        "beating the San Antonio Spurs 94 to 90 on June 13."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+def test_champion_line_draw_decided_off_the_scoreboard():
+    when = _test_dt.datetime(2026, 5, 30, 16, 0).astimezone()
+    s = champion_line(
+        champion="Paris Saint-Germain",
+        championship="the Champions League",
+        opponent="Arsenal",
+        champ_score=1,
+        opp_score=1,
+        when=when,
+    )
+    assert s == "The Paris Saint-Germain won the Champions League over the Arsenal on May 30."
     assert no_punctuation_artifacts(s)
 
 

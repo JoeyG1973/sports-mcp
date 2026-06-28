@@ -242,6 +242,38 @@ def unknown_league_message(league_text: str, suggestions: list[str]) -> str:
     return f"I don't recognize {league_text}. Did you mean {_join_with_or(suggestions)}?"
 
 
+def champion_line(
+    champion: str,
+    championship: str,
+    opponent: str,
+    champ_score: int,
+    opp_score: int,
+    when: _dt.datetime | None = None,
+) -> str:
+    """Compose a TTS-safe championship result.
+
+    `championship` already carries its article where needed ("the Stanley Cup",
+    "the NBA championship", "MLS Cup"). When the final was level on the
+    scoreboard (decided by a shootout, on penalties), the score is omitted.
+
+    Example:
+        "The New York Knicks won the NBA championship, beating the San Antonio
+        Spurs 94 to 90 on June 13."
+    """
+    if champ_score == opp_score:
+        sentence = f"The {champion} won {championship} over the {opponent}"
+    else:
+        sentence = (
+            f"The {champion} won {championship}, "
+            f"beating the {opponent} {champ_score} to {opp_score}"
+        )
+    if when is not None:
+        date_str = date_phrase(when)
+        connector = "" if date_str in ("today", "tomorrow", "yesterday") else "on "
+        sentence = f"{sentence} {connector}{date_str}"
+    return sentence + "."
+
+
 def ask_for_team_message() -> str:
     """Redirect for event/championship-name queries that name no team.
 

@@ -21,6 +21,7 @@ from mcp.server.fastmcp import FastMCP
 
 from sports_mcp.espn import ESPNClient
 from sports_mcp.tools import (
+    get_champion,
     get_league_status,
     get_live_score,
     get_next_game,
@@ -59,6 +60,18 @@ def build_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> tuple[Fa
         For in-progress games use live_score; for future games use next_game.
         """
         return await get_recent_results(client, team, count)
+
+    @mcp.tool()
+    async def champion(competition: str) -> str:
+        """Who won a league's championship or title.
+
+        Use for "who won the <championship>": the NBA championship, the
+        Stanley Cup, the World Series, the Super Bowl, MLS Cup, the World Cup,
+        or the Champions League. Returns the title-holder and the clinching
+        result. For an in-progress or future championship, says it has not been
+        decided yet. For a specific team's last game, use recent_results.
+        """
+        return await get_champion(client, competition)
 
     @mcp.tool()
     async def standings(league: str) -> str:

@@ -46,10 +46,20 @@ class ESPNClient:
         self._cache.set(url, data, ttl_seconds)
         return data
 
-    async def scoreboard(self, league_slug: str, dates: str | None = None) -> dict[str, Any]:
+    async def scoreboard(
+        self,
+        league_slug: str,
+        dates: str | None = None,
+        seasontype: int | None = None,
+    ) -> dict[str, Any]:
         url = f"{_BASE_SITE_V2}/sports/{league_slug}/scoreboard"
+        params = []
         if dates:
-            url = f"{url}?dates={dates}"
+            params.append(f"dates={dates}")
+        if seasontype is not None:
+            params.append(f"seasontype={seasontype}")
+        if params:
+            url = f"{url}?{'&'.join(params)}"
         return await self._get_json(url, ttl_seconds=15.0)
 
     async def team_schedule(self, league_slug: str, team_id: str) -> dict[str, Any]:

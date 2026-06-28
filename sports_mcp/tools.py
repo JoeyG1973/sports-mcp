@@ -453,6 +453,150 @@ async def get_recent_results(client: ESPNClient, team: str, count: int = 1) -> s
     return " ".join(lines)
 
 
+# How far back to scan the scoreboard for a recently concluded final.
+_CHAMPION_WINDOW_DAYS = 45
+
+# Spoken name of each league's championship (article included where natural).
+_CHAMPIONSHIP_NAMES = {
+    "NBA": "the NBA championship",
+    "NHL": "the Stanley Cup",
+    "MLB": "the World Series",
+    "NFL": "the Super Bowl",
+    "MLS": "MLS Cup",
+    "World Cup": "the World Cup",
+    "Champions League": "the Champions League",
+    "Premier League": "the Premier League",
+}
+
+# Event/championship names mapped to a league. Plain league names fall through
+# to resolve_league, so both "NBA championship" and "NBA" work.
+_CHAMPIONSHIP_ALIASES = {
+    "nba championship": "NBA",
+    "nba finals": "NBA",
+    "nba title": "NBA",
+    "stanley cup": "NHL",
+    "stanley cup final": "NHL",
+    "stanley cup finals": "NHL",
+    "nhl championship": "NHL",
+    "world series": "MLB",
+    "mlb championship": "MLB",
+    "super bowl": "NFL",
+    "nfl championship": "NFL",
+    "mls cup": "MLS",
+    "mls championship": "MLS",
+    "fifa world cup": "World Cup",
+    "champions league final": "Champions League",
+    "champions league title": "Champions League",
+}
+
+CHAMPION_HELP = (
+    "I can tell you the champion of the NBA, NHL, MLB, NFL, MLS, "
+    "World Cup, or Champions League. Which one?"
+)
+
+
+def _resolve_competition(text: str) -> LeagueInfo | None:
+    """Resolve a championship or league name to a LeagueInfo, or None."""
+    key = text.strip().lower()
+    if key.startswith("the "):
+        key = key[4:]
+    mapped = _CHAMPIONSHIP_ALIASES.get(key)
+    if mapped is not None:
+        return resolve_league(mapped)
+    return resolve_league(text)
+
+
+def _is_final_event(event: dict, sport: str) -> bool:
+    """True if event is a completed championship-deciding final.
+
+    ESPN marks non-soccer finals with competition.type.id '17'; soccer finals
+    carry no round id but set event.season.slug to 'final'.
+    """
+    comp = _competition_of_event(event)
+    state = ((comp.get("status") or {}).get("type") or {}).get("state")
+    if state != "post":
+        return False
+    if sport == "soccer":
+        return ((event.get("season") or {}).get("slug") or "").lower() == "final"
+    return str((comp.get("type") or {}).get("id") or "") == "17"
+
+
+def _latest_final_event(events: list[dict], sport: str) -> dict | None:
+    """Most recent completed final among events, or None."""
+    dated: list[tuple[_dt.datetime, dict]] = []
+    for event in events:
+        if not _is_final_event(event, sport):
+            continue
+        when = _parse_event_datetime(event.get("date") or "")
+        dated.append((when or _dt.datetime.min.replace(tzinfo=_dt.UTC), event))
+    if not dated:
+        return None
+    dated.sort(key=lambda kv: kv[0])
+    return dated[-1][1]
+
+
+async def get_champion(client: ESPNClient, competition: str) -> str:
+    league = _resolve_competition(competition)
+    if league is None:
+        return CHAMPION_HELP
+
+    # The deciding final can't be found by date alone: a season-wide scoreboard
+    # range caps at the earliest ~100 games (missing a recent final), and the
+    # postseason feed (seasontype=3) tracks the *current* calendar — fine for a
+    # just-ended league, but it shows next season's preseason once that rolls
+    # over. Query both and combine.
+    now = _dt.datetime.now(_dt.UTC)
+    start = now - _dt.timedelta(days=_CHAMPION_WINDOW_DAYS)
+    window = f"{start:%Y%m%d}-{now:%Y%m%d}"
+
+    events: list[dict] = []
+    reached = False
+    for kwargs in ({"dates": window}, {"seasontype": 3}):
+        try:
+            data = await client.scoreboard(league.slug, **kwargs)
+        except httpx.HTTPError as e:
+            log.warning("champion scoreboard fetch failed: %s", e)
+            continue
+        reached = True
+        events.extend(data.get("events") or [])
+    if not reached:
+        return ESPN_UNREACHABLE
+
+    seen: set = set()
+    unique = []
+    for event in events:
+        eid = event.get("id")
+        if eid in seen:
+            continue
+        seen.add(eid)
+        unique.append(event)
+
+    championship = _CHAMPIONSHIP_NAMES.get(league.name, f"the {league.name} title")
+    event = _latest_final_event(unique, league.sport)
+    if event is None:
+        phrase = championship[:1].upper() + championship[1:]
+        return f"{phrase} has not been decided yet."
+
+    comp = _competition_of_event(event)
+    competitors = comp.get("competitors", [])
+    champ = next((c for c in competitors if c.get("winner")), None)
+    if champ is None:
+        champ = max(competitors, key=_competitor_score, default=None)
+    opp = next((c for c in competitors if c is not champ), None)
+    if champ is None or opp is None:
+        phrase = championship[:1].upper() + championship[1:]
+        return f"{phrase} has not been decided yet."
+
+    return fmt.champion_line(
+        champion=(champ.get("team") or {}).get("displayName") or "",
+        championship=championship,
+        opponent=(opp.get("team") or {}).get("displayName") or "",
+        champ_score=_competitor_score(champ),
+        opp_score=_competitor_score(opp),
+        when=_parse_event_datetime(event.get("date") or ""),
+    )
+
+
 def _stat_value(entry: dict, name: str) -> int:
     for stat in entry.get("stats", []):
         if stat.get("name") == name:

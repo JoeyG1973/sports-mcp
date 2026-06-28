@@ -21,6 +21,7 @@ from sports_mcp.tools import (
     _detect_offseason,
     _detect_postseason,
     _upcoming_matches_phrase,
+    get_champion,
     get_league_status,
     get_live_score,
     get_next_game,
@@ -1308,6 +1309,185 @@ async def test_unknown_team_still_reports_not_recognized():
     finally:
         await c.aclose()
     assert "don't recognize" in s
+
+
+def _make_final_event(
+    *,
+    sport: str,
+    champ_id: str,
+    champ_name: str,
+    loser_id: str,
+    loser_name: str,
+    champ_score,
+    loser_score,
+    iso_date: str,
+) -> dict:
+    """Build a completed championship-final event.
+
+    Non-soccer finals are marked by competition.type.id == '17'; soccer finals
+    by event.season.slug == 'final'. The champion carries winner=True.
+    """
+    champ = {
+        "team": {"id": champ_id, "displayName": champ_name},
+        "homeAway": "home",
+        "winner": True,
+        "score": {"value": float(champ_score), "displayValue": str(champ_score)},
+    }
+    loser = {
+        "team": {"id": loser_id, "displayName": loser_name},
+        "homeAway": "away",
+        "winner": False,
+        "score": {"value": float(loser_score), "displayValue": str(loser_score)},
+    }
+    comp = {"competitors": [champ, loser], "status": {"type": {"state": "post"}}}
+    event = {"id": iso_date, "date": iso_date, "competitions": [comp]}
+    if sport == "soccer":
+        event["season"] = {"slug": "final"}
+    else:
+        comp["type"] = {"id": "17"}
+    return event
+
+
+async def test_get_champion_nba(monkeypatch):
+    import datetime as _dt
+
+    monkeypatch.setattr(
+        "sports_mcp.format._now_local", lambda: _dt.datetime(2026, 6, 27, 12, 0).astimezone()
+    )
+    payload = {
+        "events": [
+            _make_final_event(
+                sport="basketball",
+                champ_id="18",
+                champ_name="New York Knicks",
+                loser_id="24",
+                loser_name="San Antonio Spurs",
+                champ_score=94,
+                loser_score=90,
+                iso_date="2026-06-13T20:00Z",
+            )
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_champion(c, "NBA championship")
+    finally:
+        await c.aclose()
+    assert s == (
+        "The New York Knicks won the NBA championship, "
+        "beating the San Antonio Spurs 94 to 90 on June 13."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+async def test_get_champion_nhl_by_event_name(monkeypatch):
+    import datetime as _dt
+
+    monkeypatch.setattr(
+        "sports_mcp.format._now_local", lambda: _dt.datetime(2026, 6, 27, 12, 0).astimezone()
+    )
+    payload = {
+        "events": [
+            _make_final_event(
+                sport="hockey",
+                champ_id="7",
+                champ_name="Carolina Hurricanes",
+                loser_id="54",
+                loser_name="Vegas Golden Knights",
+                champ_score=3,
+                loser_score=0,
+                iso_date="2026-06-14T00:00Z",
+            )
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_champion(c, "Stanley Cup")
+    finally:
+        await c.aclose()
+    assert "Carolina Hurricanes won the Stanley Cup" in s
+    assert "Vegas Golden Knights 3 to 0" in s
+    assert no_punctuation_artifacts(s)
+
+
+async def test_get_champion_soccer_shootout_uses_winner_flag(monkeypatch):
+    import datetime as _dt
+
+    monkeypatch.setattr(
+        "sports_mcp.format._now_local", lambda: _dt.datetime(2026, 6, 27, 12, 0).astimezone()
+    )
+    payload = {
+        "events": [
+            _make_final_event(
+                sport="soccer",
+                champ_id="160",
+                champ_name="Paris Saint-Germain",
+                loser_id="359",
+                loser_name="Arsenal",
+                champ_score=1,
+                loser_score=1,
+                iso_date="2026-05-30T16:00Z",
+            )
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_champion(c, "Champions League")
+    finally:
+        await c.aclose()
+    assert s == ("The Paris Saint-Germain won the Champions League over the Arsenal on May 30.")
+    assert no_punctuation_artifacts(s)
+
+
+async def test_get_champion_not_decided_yet():
+    # Only a group-stage game present (no final) -> no champion yet.
+    payload = {
+        "events": [
+            {
+                "id": "1",
+                "date": "2026-06-25T19:00Z",
+                "season": {"slug": "group-stage"},
+                "competitions": [
+                    {
+                        "competitors": [
+                            {"team": {"id": "1", "displayName": "A"}, "homeAway": "home"},
+                            {"team": {"id": "2", "displayName": "B"}, "homeAway": "away"},
+                        ],
+                        "status": {"type": {"state": "post"}},
+                    }
+                ],
+            }
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_champion(c, "World Cup")
+    finally:
+        await c.aclose()
+    assert "has not been decided yet" in s
+    assert no_punctuation_artifacts(s)
+
+
+async def test_get_champion_unknown_competition():
+    c = make_client(lambda r: httpx.Response(200, json={"events": []}))
+    try:
+        s = await get_champion(c, "Quidditch Cup")
+    finally:
+        await c.aclose()
+    assert "NBA" in s and "World Cup" in s
+    assert no_punctuation_artifacts(s)
+
+
+async def test_get_champion_unreachable():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom")
+
+    c = make_client(handler)
+    try:
+        s = await get_champion(c, "NBA")
+    finally:
+        await c.aclose()
+    assert "Couldn't reach ESPN" in s
 
 
 def _make_pre_event(team_a: str, team_b: str, iso_date: str) -> dict:
