@@ -29,6 +29,19 @@ log = logging.getLogger(__name__)
 
 ESPN_UNREACHABLE = "Couldn't reach ESPN, try again in a moment."
 
+# National-team / tournament leagues whose per-team schedule feed omits
+# not-yet-played knockout fixtures (it carries only group games). Their
+# upcoming games are read from the competition scoreboard instead.
+_TOURNAMENT_NEXT_GAME_SLUGS = frozenset({"soccer/fifa.world"})
+
+# How far ahead to scan the tournament scoreboard for the next fixture.
+# Comfortably spans a World Cup knockout bracket (Round of 32 to final).
+_NEXT_GAME_WINDOW_DAYS = 60
+
+# Substrings marking a not-yet-decided knockout opponent (e.g. "Group J 2nd
+# Place", "Round of 32 1 Winner"). Such placeholders are not real team names.
+_PLACEHOLDER_OPPONENT_MARKERS = ("winner", "place", "runner", "tbd", "to be")
+
 
 def _league_for_slug(slug: str) -> LeagueInfo | None:
     for li in LEAGUE_REGISTRY:
@@ -182,6 +195,71 @@ def _next_event_for_team(events: list[dict], team_id: str) -> dict | None:
     return candidates[0][1] if candidates else None
 
 
+def _is_placeholder_opponent(name: str) -> bool:
+    """True if the opponent is an unresolved knockout slot, not a real team.
+
+    ESPN fills not-yet-decided brackets with names like "Group J 2nd Place" or
+    "Round of 32 1 Winner" — and these often carry TTS-unsafe punctuation
+    (e.g. "Third Place Group E/F/G/I/J"). Naming them aloud is useless and
+    unsafe, so we phrase the fixture without the opponent.
+    """
+    if not name:
+        return True
+    low = name.lower()
+    if any(marker in low for marker in _PLACEHOLDER_OPPONENT_MARKERS):
+        return True
+    return not fmt.no_punctuation_artifacts(name)
+
+
+def _format_next_event(info: TeamInfo, event: dict) -> str | None:
+    """Render a TTS-safe next-game line, or None if the event is unusable."""
+    when = _parse_event_datetime(event.get("date") or "")
+    comp = _competition_of_event(event)
+    competitors = comp.get("competitors", [])
+    home = next((c for c in competitors if c.get("homeAway") == "home"), None)
+    away = next((c for c in competitors if c.get("homeAway") == "away"), None)
+    if home is None or away is None or when is None:
+        return None
+
+    is_home = str((home.get("team") or {}).get("id")) == info.espn_id
+    opp = away if is_home else home
+    opp_name = (opp.get("team") or {}).get("displayName") or ""
+    venue = (comp.get("venue") or {}).get("fullName") or ""
+
+    date_str = fmt.date_phrase(when)
+    time_str = fmt.time_phrase(when)
+    verb = "host" if is_home else "play"
+    location_phrase = f" at {venue}" if venue and fmt.no_punctuation_artifacts(venue) else ""
+
+    if _is_placeholder_opponent(opp_name):
+        sentence = f"The {info.name} {verb} their next match {date_str} at {time_str}"
+    else:
+        sentence = f"The {info.name} {verb} the {opp_name} {date_str} at {time_str}"
+    return f"{sentence}{location_phrase}."
+
+
+async def _next_game_from_scoreboard(client: ESPNClient, info: TeamInfo) -> str:
+    """Next fixture for a tournament team, read from the competition scoreboard.
+
+    The per-team schedule feed omits unplayed knockout games, so scan a forward
+    window of the scoreboard for the soonest future event involving the team.
+    """
+    now = _dt.datetime.now(_dt.UTC)
+    end = now + _dt.timedelta(days=_NEXT_GAME_WINDOW_DAYS)
+    dates = f"{now:%Y%m%d}-{end:%Y%m%d}"
+    try:
+        data = await client.scoreboard(info.league_slug, dates=dates)
+    except httpx.HTTPError as e:
+        log.warning("scoreboard fetch failed: %s", e)
+        return ESPN_UNREACHABLE
+
+    event = _next_event_for_team(data.get("events") or [], info.espn_id)
+    sentence = _format_next_event(info, event) if event is not None else None
+    if sentence is None:
+        return f"The {info.name} do not have a scheduled game on the calendar."
+    return sentence
+
+
 async def get_next_game(client: ESPNClient, team: str) -> str:
     match = resolve_team(team)
     if isinstance(match, TeamMatchNone):
@@ -191,43 +269,20 @@ async def get_next_game(client: ESPNClient, team: str) -> str:
     assert isinstance(match, TeamMatchOne)
     info = match.team
 
+    if info.league_slug in _TOURNAMENT_NEXT_GAME_SLUGS:
+        return await _next_game_from_scoreboard(client, info)
+
     try:
         data = await client.team_schedule(info.league_slug, info.espn_id)
     except httpx.HTTPError as e:
         log.warning("team_schedule fetch failed: %s", e)
         return ESPN_UNREACHABLE
 
-    events = data.get("events") or []
-    event = _next_event_for_team(events, info.espn_id)
-    if event is None:
+    event = _next_event_for_team(data.get("events") or [], info.espn_id)
+    sentence = _format_next_event(info, event) if event is not None else None
+    if sentence is None:
         return f"The {info.name} do not have a scheduled game on the calendar."
-
-    when = _parse_event_datetime(event.get("date") or "")
-    comp = _competition_of_event(event)
-    competitors = comp.get("competitors", [])
-    home = next((c for c in competitors if c.get("homeAway") == "home"), None)
-    away = next((c for c in competitors if c.get("homeAway") == "away"), None)
-    venue = (comp.get("venue") or {}).get("fullName") or ""
-
-    if home is None or away is None or when is None:
-        return f"The {info.name} do not have a scheduled game on the calendar."
-
-    home_name = home["team"]["displayName"]
-    away_name = away["team"]["displayName"]
-    is_home = home["team"]["id"] == info.espn_id
-
-    date_str = fmt.date_phrase(when)
-    time_str = fmt.time_phrase(when)
-    opponent = home_name if not is_home else away_name
-    location_phrase = f"at {venue}" if venue else ""
-
-    if is_home:
-        sentence = f"The {info.name} host the {opponent} {date_str} at {time_str}"
-    else:
-        sentence = f"The {info.name} play the {opponent} {date_str} at {time_str}"
-    if location_phrase:
-        sentence = f"{sentence} {location_phrase}"
-    return sentence + "."
+    return sentence
 
 
 def _competitor_score(competitor: dict) -> int:

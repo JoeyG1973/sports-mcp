@@ -217,6 +217,126 @@ async def test_get_next_game_espn_unreachable():
     assert "Couldn't reach ESPN" in s
 
 
+def _make_scoreboard_pre_event(
+    *,
+    team_id: str,
+    team_name: str,
+    opp_id: str,
+    opp_name: str,
+    iso_date: str,
+    venue: str = "",
+    team_is_home: bool = True,
+) -> dict:
+    """Build a synthetic pre-state scoreboard event (tournament fixture)."""
+    team_c = {
+        "team": {"id": team_id, "displayName": team_name},
+        "homeAway": "home" if team_is_home else "away",
+    }
+    opp_c = {
+        "team": {"id": opp_id, "displayName": opp_name},
+        "homeAway": "away" if team_is_home else "home",
+    }
+    comp = {"competitors": [team_c, opp_c], "status": {"type": {"state": "pre"}}}
+    if venue:
+        comp["venue"] = {"fullName": venue}
+    return {"id": iso_date, "date": iso_date, "competitions": [comp]}
+
+
+def make_routing_client(*, schedule: dict, scoreboard: dict) -> ESPNClient:
+    """A client whose response depends on the endpoint hit.
+
+    Mirrors the real bug: a national team's team_schedule omits the upcoming
+    knockout fixture, which only appears on the competition scoreboard. Tests
+    using this only pass if get_next_game routes tournament teams to the
+    scoreboard.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/schedule"):
+            return httpx.Response(200, json=schedule)
+        if path.endswith("/scoreboard"):
+            return httpx.Response(200, json=scoreboard)
+        return httpx.Response(404, json={})
+
+    return make_client(handler)
+
+
+async def test_get_next_game_world_cup_knockout():
+    # USMNT's next fixture lives on the fifa.world scoreboard; team_schedule
+    # only has finished group games (here: none upcoming).
+    scoreboard = {
+        "events": [
+            _make_scoreboard_pre_event(
+                team_id="660",
+                team_name="United States",
+                opp_id="452",
+                opp_name="Bosnia-Herzegovina",
+                iso_date="2099-07-01T20:00Z",
+                venue="Levi's Stadium",
+                team_is_home=True,
+            )
+        ]
+    }
+    c = make_routing_client(schedule={"events": []}, scoreboard=scoreboard)
+    try:
+        s = await get_next_game(c, "USMNT")
+    finally:
+        await c.aclose()
+    assert "United States" in s
+    assert "Bosnia-Herzegovina" in s
+    assert "Levi's Stadium" in s
+
+
+async def test_get_next_game_world_cup_tbd_opponent_is_tts_safe():
+    # A not-yet-decided opponent can carry a TTS-unsafe name (slashes). The
+    # fixture must still be reported, without leaking the placeholder name.
+    scoreboard = {
+        "events": [
+            _make_scoreboard_pre_event(
+                team_id="164",
+                team_name="Spain",
+                opp_id="131547",
+                opp_name="Third Place Group E/F/G/I/J",
+                iso_date="2099-07-02T19:00Z",
+                venue="SoFi Stadium",
+                team_is_home=True,
+            )
+        ]
+    }
+    c = make_routing_client(schedule={"events": []}, scoreboard=scoreboard)
+    try:
+        s = await get_next_game(c, "Spain")
+    finally:
+        await c.aclose()
+    assert "Spain" in s
+    assert "SoFi Stadium" in s
+    assert "next match" in s
+    assert "/" not in s
+    assert no_punctuation_artifacts(s)
+
+
+async def test_get_next_game_world_cup_none_scheduled():
+    c = make_routing_client(schedule={"events": []}, scoreboard={"events": []})
+    try:
+        s = await get_next_game(c, "USMNT")
+    finally:
+        await c.aclose()
+    assert "do not have a scheduled game" in s
+
+
+async def test_get_next_game_world_cup_unreachable():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom")
+
+    c = make_client(handler)
+    try:
+        s = await get_next_game(c, "USMNT")
+    finally:
+        await c.aclose()
+    assert "Couldn't reach ESPN" in s
+
+
 async def test_get_standings_unknown_league():
     c = make_client(lambda r: httpx.Response(200, json={}))
     try:
