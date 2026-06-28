@@ -453,8 +453,32 @@ async def get_recent_results(client: ESPNClient, team: str, count: int = 1) -> s
     return " ".join(lines)
 
 
-# How far back to scan the scoreboard for a recently concluded final.
-_CHAMPION_WINDOW_DAYS = 45
+# Approximate calendar window (start_month, start_day, end_month, end_day) when
+# each league's championship is decided. Used to locate the most recently
+# completed edition: a season-wide scoreboard query caps at the earliest ~100
+# games (missing a recent final) and the postseason feed only tracks the current
+# season, so neither reliably surfaces a title decided months ago. World Cup is
+# quadrennial and intentionally omitted (handled by the recent-window fallback).
+_CHAMPIONSHIP_WINDOWS = {
+    "NFL": (1, 25, 2, 20),  # Super Bowl, early February
+    "MLB": (10, 15, 11, 12),  # World Series, late October
+    "NBA": (5, 20, 6, 30),  # Finals, June
+    "NHL": (5, 20, 6, 30),  # Stanley Cup Final, June
+    "MLS": (11, 20, 12, 20),  # MLS Cup, early December
+    "Champions League": (5, 15, 6, 12),  # final, late May
+}
+
+# Look-back for leagues without a fixed window (e.g. World Cup).
+_CHAMPION_FALLBACK_DAYS = 60
+
+# ESPN competition.type id for an all-star game (e.g. the NFL Pro Bowl), which
+# shares the post-season slug but is not a championship.
+_ALL_STAR_TYPE_ID = "4"
+
+# event.season.slug values that mark a soccer competition's title decider.
+# Cups use 'final'; MLS tags its championship 'mls-cup' (its conference finals
+# end in '---final' and must not be matched).
+_SOCCER_FINAL_SLUGS = frozenset({"final", "mls-cup"})
 
 # Spoken name of each league's championship (article included where natural).
 _CHAMPIONSHIP_NAMES = {
@@ -506,33 +530,71 @@ def _resolve_competition(text: str) -> LeagueInfo | None:
     return resolve_league(text)
 
 
-def _is_final_event(event: dict, sport: str) -> bool:
-    """True if event is a completed championship-deciding final.
+def _event_type_id(event: dict) -> str:
+    return str((_competition_of_event(event).get("type") or {}).get("id") or "")
 
-    ESPN marks non-soccer finals with competition.type.id '17'; soccer finals
-    carry no round id but set event.season.slug to 'final'.
+
+def _championship_event(events: list[dict], sport: str) -> dict | None:
+    """Pick the championship-deciding game from a set of events, or None.
+
+    Soccer finals carry event.season.slug == 'final'. Non-soccer: prefer the
+    final round (competition.type.id '17', used by NBA, NHL, MLB); if no round
+    is tagged (NFL keeps id '1' on playoff games), fall back to the latest
+    completed post-season game, excluding the all-star game (id '4'). In every
+    case the most recent qualifying game is the clincher.
     """
-    comp = _competition_of_event(event)
-    state = ((comp.get("status") or {}).get("type") or {}).get("state")
-    if state != "post":
-        return False
+    completed = [
+        e
+        for e in events
+        if ((_competition_of_event(e).get("status") or {}).get("type") or {}).get("state") == "post"
+    ]
     if sport == "soccer":
-        return ((event.get("season") or {}).get("slug") or "").lower() == "final"
-    return str((comp.get("type") or {}).get("id") or "") == "17"
-
-
-def _latest_final_event(events: list[dict], sport: str) -> dict | None:
-    """Most recent completed final among events, or None."""
-    dated: list[tuple[_dt.datetime, dict]] = []
-    for event in events:
-        if not _is_final_event(event, sport):
-            continue
-        when = _parse_event_datetime(event.get("date") or "")
-        dated.append((when or _dt.datetime.min.replace(tzinfo=_dt.UTC), event))
-    if not dated:
+        finals = [
+            e
+            for e in completed
+            if ((e.get("season") or {}).get("slug") or "").lower() in _SOCCER_FINAL_SLUGS
+        ]
+    else:
+        finals = [e for e in completed if _event_type_id(e) == "17"]
+        if not finals:
+            finals = [
+                e
+                for e in completed
+                if ((e.get("season") or {}).get("slug") or "").lower() == "post-season"
+                and _event_type_id(e) != _ALL_STAR_TYPE_ID
+            ]
+    if not finals:
         return None
-    dated.sort(key=lambda kv: kv[0])
-    return dated[-1][1]
+    finals.sort(
+        key=lambda e: (
+            _parse_event_datetime(e.get("date") or "") or _dt.datetime.min.replace(tzinfo=_dt.UTC)
+        )
+    )
+    return finals[-1]
+
+
+def _champion_date_ranges(league_name: str, today: _dt.date) -> list[str]:
+    """Scoreboard date ranges to search for the most recent completed final.
+
+    For a league with a known championship window, yield the current year's
+    window (clamped to today) then prior years — most recent first — so a
+    just-concluded title is found before older ones, and a league whose current
+    season hasn't finished falls back to the previous edition. Leagues without a
+    window get a single recent look-back range.
+    """
+    window = _CHAMPIONSHIP_WINDOWS.get(league_name)
+    if window is None:
+        start = today - _dt.timedelta(days=_CHAMPION_FALLBACK_DAYS)
+        return [f"{start:%Y%m%d}-{today:%Y%m%d}"]
+    sm, sd, em, ed = window
+    ranges: list[str] = []
+    for year in (today.year, today.year - 1, today.year - 2):
+        start = _dt.date(year, sm, sd)
+        if start > today:
+            continue  # this year's championship hasn't started
+        end = min(_dt.date(year, em, ed), today)
+        ranges.append(f"{start:%Y%m%d}-{end:%Y%m%d}")
+    return ranges
 
 
 async def get_champion(client: ESPNClient, competition: str) -> str:
@@ -540,39 +602,24 @@ async def get_champion(client: ESPNClient, competition: str) -> str:
     if league is None:
         return CHAMPION_HELP
 
-    # The deciding final can't be found by date alone: a season-wide scoreboard
-    # range caps at the earliest ~100 games (missing a recent final), and the
-    # postseason feed (seasontype=3) tracks the *current* calendar — fine for a
-    # just-ended league, but it shows next season's preseason once that rolls
-    # over. Query both and combine.
-    now = _dt.datetime.now(_dt.UTC)
-    start = now - _dt.timedelta(days=_CHAMPION_WINDOW_DAYS)
-    window = f"{start:%Y%m%d}-{now:%Y%m%d}"
+    today = _dt.datetime.now(_dt.UTC).date()
+    championship = _CHAMPIONSHIP_NAMES.get(league.name, f"the {league.name} title")
 
-    events: list[dict] = []
     reached = False
-    for kwargs in ({"dates": window}, {"seasontype": 3}):
+    event = None
+    for dates in _champion_date_ranges(league.name, today):
         try:
-            data = await client.scoreboard(league.slug, **kwargs)
+            data = await client.scoreboard(league.slug, dates=dates)
         except httpx.HTTPError as e:
             log.warning("champion scoreboard fetch failed: %s", e)
             continue
         reached = True
-        events.extend(data.get("events") or [])
+        event = _championship_event(data.get("events") or [], league.sport)
+        if event is not None:
+            break
+
     if not reached:
         return ESPN_UNREACHABLE
-
-    seen: set = set()
-    unique = []
-    for event in events:
-        eid = event.get("id")
-        if eid in seen:
-            continue
-        seen.add(eid)
-        unique.append(event)
-
-    championship = _CHAMPIONSHIP_NAMES.get(league.name, f"the {league.name} title")
-    event = _latest_final_event(unique, league.sport)
     if event is None:
         phrase = championship[:1].upper() + championship[1:]
         return f"{phrase} has not been decided yet."

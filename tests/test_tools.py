@@ -1375,7 +1375,7 @@ async def test_get_champion_nba(monkeypatch):
         await c.aclose()
     assert s == (
         "The New York Knicks won the NBA championship, "
-        "beating the San Antonio Spurs 94 to 90 on June 13."
+        "beating the San Antonio Spurs 94 to 90 in June 2026."
     )
     assert no_punctuation_artifacts(s)
 
@@ -1435,7 +1435,187 @@ async def test_get_champion_soccer_shootout_uses_winner_flag(monkeypatch):
         s = await get_champion(c, "Champions League")
     finally:
         await c.aclose()
-    assert s == ("The Paris Saint-Germain won the Champions League over the Arsenal on May 30.")
+    assert s == ("The Paris Saint-Germain won the Champions League over the Arsenal in May 2026.")
+    assert no_punctuation_artifacts(s)
+
+
+async def test_get_champion_nfl_super_bowl_no_round_id():
+    # NFL playoff games keep type.id '1' (not 14-17); the Super Bowl is the
+    # latest post-season game, and the Pro Bowl (id '4') must be excluded.
+    payload = {
+        "events": [
+            {
+                "id": "probowl",
+                "date": "2026-02-01T20:00Z",
+                "season": {"slug": "post-season"},
+                "competitions": [
+                    {
+                        "type": {"id": "4"},
+                        "status": {"type": {"state": "post"}},
+                        "competitors": [
+                            {
+                                "team": {"id": "nfc", "displayName": "NFC"},
+                                "homeAway": "home",
+                                "winner": True,
+                                "score": {"value": 1, "displayValue": "1"},
+                            },
+                            {
+                                "team": {"id": "afc", "displayName": "AFC"},
+                                "homeAway": "away",
+                                "winner": False,
+                                "score": {"value": 0, "displayValue": "0"},
+                            },
+                        ],
+                    }
+                ],
+            },
+            {
+                "id": "sb",
+                "date": "2026-02-08T23:30Z",
+                "season": {"slug": "post-season"},
+                "competitions": [
+                    {
+                        "type": {"id": "1"},
+                        "status": {"type": {"state": "post"}},
+                        "competitors": [
+                            {
+                                "team": {"id": "sea", "displayName": "Seattle Seahawks"},
+                                "homeAway": "home",
+                                "winner": True,
+                                "score": {"value": 29, "displayValue": "29"},
+                            },
+                            {
+                                "team": {"id": "ne", "displayName": "New England Patriots"},
+                                "homeAway": "away",
+                                "winner": False,
+                                "score": {"value": 13, "displayValue": "13"},
+                            },
+                        ],
+                    }
+                ],
+            },
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_champion(c, "Super Bowl")
+    finally:
+        await c.aclose()
+    assert s == (
+        "The Seattle Seahawks won the Super Bowl, "
+        "beating the New England Patriots 29 to 13 in February 2026."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+async def test_get_champion_mlb_world_series_prior_year():
+    # In June, the current MLB season has no final yet; champion must fall back
+    # to the prior completed World Series (id '17').
+    payload = {
+        "events": [
+            {
+                "id": "ws",
+                "date": "2025-11-01T23:00Z",
+                "season": {"slug": "post-season"},
+                "competitions": [
+                    {
+                        "type": {"id": "17"},
+                        "status": {"type": {"state": "post"}},
+                        "competitors": [
+                            {
+                                "team": {"id": "lad", "displayName": "Los Angeles Dodgers"},
+                                "homeAway": "home",
+                                "winner": True,
+                                "score": {"value": 5, "displayValue": "5"},
+                            },
+                            {
+                                "team": {"id": "nyy", "displayName": "New York Yankees"},
+                                "homeAway": "away",
+                                "winner": False,
+                                "score": {"value": 2, "displayValue": "2"},
+                            },
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_champion(c, "World Series")
+    finally:
+        await c.aclose()
+    assert s == (
+        "The Los Angeles Dodgers won the World Series, "
+        "beating the New York Yankees 5 to 2 in November 2025."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+async def test_get_champion_mls_cup_slug():
+    # MLS marks its final season.slug 'mls-cup' (not 'final'); conference finals
+    # end in '---final' and must NOT be mistaken for the championship.
+    payload = {
+        "events": [
+            {
+                "id": "conf",
+                "date": "2025-11-30T02:00Z",
+                "season": {"slug": "western-conference-playoffs---final"},
+                "competitions": [
+                    {
+                        "status": {"type": {"state": "post"}},
+                        "competitors": [
+                            {
+                                "team": {"id": "van", "displayName": "Vancouver Whitecaps"},
+                                "homeAway": "away",
+                                "winner": True,
+                                "score": {"value": 2, "displayValue": "2"},
+                            },
+                            {
+                                "team": {"id": "sd", "displayName": "San Diego FC"},
+                                "homeAway": "home",
+                                "winner": False,
+                                "score": {"value": 1, "displayValue": "1"},
+                            },
+                        ],
+                    }
+                ],
+            },
+            {
+                "id": "cup",
+                "date": "2025-12-06T19:30Z",
+                "season": {"slug": "mls-cup"},
+                "competitions": [
+                    {
+                        "status": {"type": {"state": "post"}},
+                        "competitors": [
+                            {
+                                "team": {"id": "mia", "displayName": "Inter Miami CF"},
+                                "homeAway": "home",
+                                "winner": True,
+                                "score": {"value": 3, "displayValue": "3"},
+                            },
+                            {
+                                "team": {"id": "van", "displayName": "Vancouver Whitecaps"},
+                                "homeAway": "away",
+                                "winner": False,
+                                "score": {"value": 1, "displayValue": "1"},
+                            },
+                        ],
+                    }
+                ],
+            },
+        ]
+    }
+    c = make_client(lambda r: httpx.Response(200, json=payload))
+    try:
+        s = await get_champion(c, "MLS Cup")
+    finally:
+        await c.aclose()
+    assert (
+        s
+        == "The Inter Miami CF won MLS Cup, beating the Vancouver Whitecaps 3 to 1 in December 2025."
+    )
     assert no_punctuation_artifacts(s)
 
 

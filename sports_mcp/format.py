@@ -268,9 +268,9 @@ def champion_line(
             f"beating the {opponent} {champ_score} to {opp_score}"
         )
     if when is not None:
-        date_str = date_phrase(when)
-        connector = "" if date_str in ("today", "tomorrow", "yesterday") else "on "
-        sentence = f"{sentence} {connector}{date_str}"
+        # A championship can be months or years old, so name the month and year
+        # rather than a relative phrase.
+        sentence = f"{sentence} in {when.astimezone():%B %Y}"
     return sentence + "."
 
 

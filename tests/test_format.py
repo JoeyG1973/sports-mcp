@@ -409,7 +409,7 @@ def test_champion_line_decisive_score():
     )
     assert s == (
         "The New York Knicks won the NBA championship, "
-        "beating the San Antonio Spurs 94 to 90 on June 13."
+        "beating the San Antonio Spurs 94 to 90 in June 2026."
     )
     assert no_punctuation_artifacts(s)
 
@@ -424,7 +424,7 @@ def test_champion_line_draw_decided_off_the_scoreboard():
         opp_score=1,
         when=when,
     )
-    assert s == "The Paris Saint-Germain won the Champions League over the Arsenal on May 30."
+    assert s == "The Paris Saint-Germain won the Champions League over the Arsenal in May 2026."
     assert no_punctuation_artifacts(s)
 
 
