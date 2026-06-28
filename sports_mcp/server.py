@@ -21,9 +21,11 @@ from mcp.server.fastmcp import FastMCP
 
 from sports_mcp.espn import ESPNClient
 from sports_mcp.tools import (
+    get_champion,
     get_league_status,
     get_live_score,
     get_next_game,
+    get_recent_results,
     get_standings,
 )
 
@@ -46,6 +48,30 @@ def build_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> tuple[Fa
     async def next_game(team: str) -> str:
         """The team's next scheduled game with opponent, time, and venue."""
         return await get_next_game(client, team)
+
+    @mcp.tool()
+    async def recent_results(team: str, count: int = 1) -> str:
+        """Final result of a team's most recent COMPLETED game(s).
+
+        Use this for questions about games that have already finished:
+        "last game", "most recent game", "final score", "who won",
+        "did they win", "how did they do". Returns the score, opponent,
+        date, and competition. Set count for the last N games (default 1).
+        For in-progress games use live_score; for future games use next_game.
+        """
+        return await get_recent_results(client, team, count)
+
+    @mcp.tool()
+    async def champion(competition: str) -> str:
+        """Who won a league's championship or title.
+
+        Use for "who won the <championship>": the NBA championship, the
+        Stanley Cup, the World Series, the Super Bowl, MLS Cup, the World Cup,
+        or the Champions League. Returns the title-holder and the clinching
+        result. For an in-progress or future championship, says it has not been
+        decided yet. For a specific team's last game, use recent_results.
+        """
+        return await get_champion(client, competition)
 
     @mcp.tool()
     async def standings(league: str) -> str:

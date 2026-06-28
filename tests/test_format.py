@@ -3,6 +3,7 @@ from datetime import datetime
 
 from sports_mcp.format import (
     ambiguity_message,
+    champion_line,
     clock_phrase,
     date_phrase,
     final_outcome_line,
@@ -14,6 +15,7 @@ from sports_mcp.format import (
     period_phrase_hockey,
     period_phrase_soccer,
     pre_game_line,
+    recent_result_line,
     score_line,
     season_phase_prefix,
     standings_block,
@@ -330,6 +332,111 @@ def test_pre_game_line_tomorrow(monkeypatch):
         "The Los Angeles Lakers don't have a live game yet. "
         "They play the Boston Celtics tomorrow at 7 30 PM."
     )
+    assert no_punctuation_artifacts(s)
+
+
+def test_recent_result_line_loss_with_date_and_competition():
+    when = _test_dt.datetime(2026, 6, 25, 19, 0).astimezone()
+    s = recent_result_line(
+        team_name="United States",
+        team_score=2,
+        opp_name="Türkiye",
+        opp_score=3,
+        when=when,
+        competition="World Cup group stage",
+    )
+    assert s == (
+        "The United States lost to the Türkiye 2 to 3 on June 25 in the World Cup group stage."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+def test_recent_result_line_win_with_date_and_competition():
+    when = _test_dt.datetime(2026, 6, 25, 19, 0).astimezone()
+    s = recent_result_line(
+        team_name="United States",
+        team_score=3,
+        opp_name="Paraguay",
+        opp_score=1,
+        when=when,
+        competition="World Cup group stage",
+    )
+    assert s == (
+        "The United States beat the Paraguay 3 to 1 on June 25 in the World Cup group stage."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+def test_recent_result_line_without_competition():
+    when = _test_dt.datetime(2026, 6, 25, 19, 0).astimezone()
+    s = recent_result_line(
+        team_name="Los Angeles Lakers",
+        team_score=107,
+        opp_name="Houston Rockets",
+        opp_score=99,
+        when=when,
+    )
+    assert s == "The Los Angeles Lakers beat the Houston Rockets 107 to 99 on June 25."
+    assert no_punctuation_artifacts(s)
+
+
+def test_recent_result_line_today_has_no_on_prefix(monkeypatch):
+    fixed_now = _test_dt.datetime(2026, 6, 27, 12, 0).astimezone()
+    monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
+    when = _test_dt.datetime(2026, 6, 27, 18, 0).astimezone()
+    s = recent_result_line(
+        team_name="New York Yankees",
+        team_score=1,
+        opp_name="Boston Red Sox",
+        opp_score=4,
+        when=when,
+        competition="MLB",
+    )
+    assert "on today" not in s
+    assert s == "The New York Yankees lost to the Boston Red Sox 1 to 4 today in the MLB."
+    assert no_punctuation_artifacts(s)
+
+
+def test_champion_line_decisive_score():
+    when = _test_dt.datetime(2026, 6, 13, 20, 0).astimezone()
+    s = champion_line(
+        champion="New York Knicks",
+        championship="the NBA championship",
+        opponent="San Antonio Spurs",
+        champ_score=94,
+        opp_score=90,
+        when=when,
+    )
+    assert s == (
+        "The New York Knicks won the NBA championship, "
+        "beating the San Antonio Spurs 94 to 90 in June 2026."
+    )
+    assert no_punctuation_artifacts(s)
+
+
+def test_champion_line_draw_decided_off_the_scoreboard():
+    when = _test_dt.datetime(2026, 5, 30, 16, 0).astimezone()
+    s = champion_line(
+        champion="Paris Saint-Germain",
+        championship="the Champions League",
+        opponent="Arsenal",
+        champ_score=1,
+        opp_score=1,
+        when=when,
+    )
+    assert s == "The Paris Saint-Germain won the Champions League over the Arsenal in May 2026."
+    assert no_punctuation_artifacts(s)
+
+
+def test_recent_result_line_without_date():
+    s = recent_result_line(
+        team_name="Arsenal",
+        team_score=1,
+        opp_name="Chelsea",
+        opp_score=1,
+        competition="Premier League",
+    )
+    assert s == "The Arsenal and the Chelsea tied 1 to 1 in the Premier League."
     assert no_punctuation_artifacts(s)
 
 

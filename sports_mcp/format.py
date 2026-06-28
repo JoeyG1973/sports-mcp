@@ -242,6 +242,50 @@ def unknown_league_message(league_text: str, suggestions: list[str]) -> str:
     return f"I don't recognize {league_text}. Did you mean {_join_with_or(suggestions)}?"
 
 
+def champion_line(
+    champion: str,
+    championship: str,
+    opponent: str,
+    champ_score: int,
+    opp_score: int,
+    when: _dt.datetime | None = None,
+) -> str:
+    """Compose a TTS-safe championship result.
+
+    `championship` already carries its article where needed ("the Stanley Cup",
+    "the NBA championship", "MLS Cup"). When the final was level on the
+    scoreboard (decided by a shootout, on penalties), the score is omitted.
+
+    Example:
+        "The New York Knicks won the NBA championship, beating the San Antonio
+        Spurs 94 to 90 on June 13."
+    """
+    if champ_score == opp_score:
+        sentence = f"The {champion} won {championship} over the {opponent}"
+    else:
+        sentence = (
+            f"The {champion} won {championship}, "
+            f"beating the {opponent} {champ_score} to {opp_score}"
+        )
+    if when is not None:
+        # A championship can be months or years old, so name the month and year
+        # rather than a relative phrase.
+        sentence = f"{sentence} in {when.astimezone():%B %Y}"
+    return sentence + "."
+
+
+def ask_for_team_message() -> str:
+    """Redirect for event/championship-name queries that name no team.
+
+    "Who won the NBA Finals?" gives no team to look up; rather than guess a
+    wrong game, ask the user to name a team.
+    """
+    return (
+        "I can look up a specific team's result. "
+        "Try naming a team, like the Knicks or the United States."
+    )
+
+
 def final_outcome_line(
     team_name: str,
     team_score: int,
@@ -262,6 +306,35 @@ def final_outcome_line(
     if team_score < opp_score:
         return f"The {team_name} lost to the {opp_name} {team_score} to {opp_score}."
     return f"The {team_name} and the {opp_name} tied {team_score} to {opp_score}."
+
+
+def recent_result_line(
+    team_name: str,
+    team_score: int,
+    opp_name: str,
+    opp_score: int,
+    when: _dt.datetime | None = None,
+    competition: str = "",
+) -> str:
+    """Compose a TTS-safe completed-game narrative from team_name's perspective.
+
+    Extends final_outcome_line with the game date and, when known, the
+    competition or round. The queried team's score is always spoken first.
+
+    Example:
+        "The United States lost to the Türkiye 2 to 3 on June 25 in the World
+        Cup group stage."
+    """
+    sentence = final_outcome_line(team_name, team_score, opp_name, opp_score).rstrip(".")
+    if when is not None:
+        date_str = date_phrase(when)
+        # Relative adverbs read wrong with "on" ("on today"); absolute dates
+        # and weekdays take it ("on June 13", "on Wednesday").
+        connector = "" if date_str in ("today", "tomorrow", "yesterday") else "on "
+        sentence = f"{sentence} {connector}{date_str}"
+    if competition:
+        sentence = f"{sentence} in the {competition}"
+    return sentence + "."
 
 
 def pre_game_line(

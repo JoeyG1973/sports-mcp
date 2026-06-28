@@ -8,6 +8,8 @@ Types (LeagueInfo, TeamInfo) live in sports_mcp._types to avoid circular imports
 from __future__ import annotations
 
 import difflib
+import re
+import unicodedata
 from dataclasses import dataclass
 
 from sports_mcp._types import LeagueInfo, TeamInfo
@@ -118,34 +120,127 @@ class TeamMatchNone:
 TeamMatch = TeamMatchOne | TeamMatchAmbiguous | TeamMatchNone
 
 
-def _build_team_index() -> dict[str, list[TeamInfo]]:
-    """Build the alias -> [TeamInfo] index, deduplicating by (sport, espn_id).
+# League slugs whose teams are national sides (countries), not clubs.
+_NATIONAL_TEAM_SLUGS = frozenset({"soccer/fifa.world"})
 
-    ESPN reuses numeric IDs across different sports (e.g. espn_id '13' is both
-    the Las Vegas Raiders and the Los Angeles Lakers). However, within the same
-    sport, a club like Arsenal shares the same espn_id in soccer/eng.1 (EPL)
-    and soccer/uefa.champions (UCL). Only the first occurrence per sport is
-    kept. Because LEAGUE_REGISTRY lists domestic leagues (EPL, MLS) before
-    tournament leagues (UCL, World Cup), the domestic entry wins.
+# Federation acronyms / colloquial names ESPN's team feed omits, keyed by
+# espn_id. Harvested aliases for a national side are only the country name and
+# FIFA abbreviation (e.g. 'united states', 'usa'); voice users also say acronyms
+# like "USMNT". Add such forms here, not in the auto-generated teams_data.py.
+NATIONAL_TEAM_NICKNAMES: dict[str, tuple[str, ...]] = {
+    "660": ("usmnt", "us", "team usa", "united states of america", "america"),
+}
+
+# Common English/native alternates for countries whose ESPN name differs from
+# what people say, keyed by ESPN display name. Covers the 2026 World Cup field;
+# extend as the field changes. Normalization already folds diacritics and
+# punctuation, so only genuinely different words need listing here (e.g. ESPN
+# 'Türkiye' still needs 'turkey').
+COUNTRY_ALTERNATES: dict[str, tuple[str, ...]] = {
+    "Cape Verde": ("cabo verde",),
+    "Ivory Coast": ("cote d'ivoire", "cote divoire"),
+    "South Korea": ("korea republic", "republic of korea", "korea"),
+    "Türkiye": ("turkey",),
+    "Czechia": ("czech republic", "czech"),
+    "Congo DR": (
+        "dr congo",
+        "democratic republic of congo",
+        "democratic republic of the congo",
+        "drc",
+    ),
+    "Netherlands": ("holland",),
+    "Bosnia-Herzegovina": ("bosnia", "bosnia and herzegovina"),
+    "Saudi Arabia": ("saudi",),
+    "Iran": ("ir iran", "islamic republic of iran", "persia"),
+}
+
+# Words dropped when reducing a national-team phrase to its country tokens, so
+# "United States men's national team" matches the same country as "USA".
+_NATIONAL_FILLER = frozenset(
+    {"the", "national", "team", "soccer", "football", "men", "mens", "women", "womens"}
+)
+
+
+def _normalize(text: str) -> str:
+    """Lowercase, fold diacritics, drop possessives, collapse to single spaces.
+
+    "Côte d'Ivoire" -> "cote divoire"; "Men's" -> "mens"; "Türkiye" -> "turkiye".
+    Used for both index keys and queries, so matching is order- and
+    accent-insensitive.
     """
-    seen_sport_ids: set[tuple[str, str]] = set()
+    folded = unicodedata.normalize("NFKD", text)
+    folded = "".join(c for c in folded if not unicodedata.combining(c))
+    folded = folded.lower().replace("’", "").replace("'", "")
+    folded = re.sub(r"[^a-z0-9]+", " ", folded)
+    return " ".join(folded.split())
+
+
+def _national_core_key(normalized: str) -> str:
+    """Strip national-team filler words, leaving the country tokens."""
+    return " ".join(t for t in normalized.split() if t not in _NATIONAL_FILLER)
+
+
+def _national_aliases(t: TeamInfo) -> set[str]:
+    """Normalized aliases for a national side: name, abbrev, alternates, nicknames."""
+    raw = set(t.aliases)
+    raw.add(t.name)
+    raw.update(COUNTRY_ALTERNATES.get(t.name, ()))
+    raw.update(NATIONAL_TEAM_NICKNAMES.get(t.espn_id, ()))
+    return {_normalize(a) for a in raw if a}
+
+
+def _build_indexes() -> tuple[dict[str, list[TeamInfo]], dict[str, list[TeamInfo]]]:
+    """Build the exact-alias index and the national-team core index.
+
+    Dedup is by (sport, espn_id): ESPN reuses numeric IDs across sports, and a
+    club like Arsenal appears in both eng.1 and uefa.champions — first wins, and
+    LEAGUE_REGISTRY orders domestic before tournament so the domestic entry is
+    kept.
+
+    The exact index holds normalized aliases for all teams. The core index maps
+    a filler-stripped country phrase (e.g. "united states" from "united states
+    mens national team") to its team, so descriptive phrasings resolve
+    generically WITHOUT being stored as aliases — which is what keeps them out
+    of the fuzzy-suggestion pool (the cause of the bogus-country suggestions).
+    """
+    seen: set[tuple[str, str]] = set()
     index: dict[str, list[TeamInfo]] = {}
+    core: dict[str, list[TeamInfo]] = {}
     for t in TEAM_REGISTRY:
         sport = t.league_slug.split("/")[0]
-        key = (sport, t.espn_id)
-        if key in seen_sport_ids:
+        sid = (sport, t.espn_id)
+        if sid in seen:
             continue
-        seen_sport_ids.add(key)
-        for alias in t.aliases:
-            index.setdefault(alias, []).append(t)
-    return index
+        seen.add(sid)
+        if t.league_slug in _NATIONAL_TEAM_SLUGS:
+            for alias in _national_aliases(t):
+                index.setdefault(alias, []).append(t)
+                ck = _national_core_key(alias)
+                if ck:
+                    core.setdefault(ck, []).append(t)
+        else:
+            for alias in t.aliases:
+                index.setdefault(_normalize(alias), []).append(t)
+    return index, core
 
 
-TEAMS: dict[str, list[TeamInfo]] = _build_team_index()
+TEAMS, _NATIONAL_CORE = _build_indexes()
 
 
 def _all_alias_strings() -> list[str]:
     return list(TEAMS.keys())
+
+
+def _dedupe(teams: list[TeamInfo]) -> list[TeamInfo]:
+    """Collapse repeated (league_slug, espn_id) entries, preserving order."""
+    seen: set[tuple[str, str]] = set()
+    out: list[TeamInfo] = []
+    for t in teams:
+        k = (t.league_slug, t.espn_id)
+        if k not in seen:
+            seen.add(k)
+            out.append(t)
+    return out
 
 
 def resolve_team(
@@ -154,14 +249,24 @@ def resolve_team(
 ) -> TeamMatch:
     """Resolve a free-text team name to a TeamMatch.
 
-    If multiple teams share the alias and prefer_league disambiguates,
-    return the unique match in that league. Otherwise return ambiguous.
+    Matching is tiered: an exact normalized alias first, then — for national
+    sides — a filler-stripped country match so phrasings like "USA men's
+    national team" or "USA mens soccer" reduce to the country. If multiple
+    teams share the result and prefer_league disambiguates, return the unique
+    match; otherwise return ambiguous.
 
-    For unknown aliases, return TeamMatchNone with up to three close
-    suggestions via difflib.
+    For unknown input, return TeamMatchNone with up to three close suggestions.
+    Suggestions are drawn only from real aliases (country/club names, abbrevs,
+    nicknames), never synthetic descriptive forms, so an unmatched national-team
+    phrase can never surface an unrelated country.
     """
-    key = text.strip().lower()
-    matches = TEAMS.get(key, [])
+    norm = _normalize(text)
+    matches = TEAMS.get(norm, [])
+    if not matches:
+        core = _national_core_key(norm)
+        if core:
+            matches = _NATIONAL_CORE.get(core, [])
+    matches = _dedupe(matches)
 
     if prefer_league is not None and matches:
         in_league = [t for t in matches if t.league_slug == prefer_league]
@@ -173,5 +278,5 @@ def resolve_team(
     if len(matches) > 1:
         return TeamMatchAmbiguous(tuple(matches))
 
-    suggestions = difflib.get_close_matches(key, _all_alias_strings(), n=3, cutoff=0.6)
+    suggestions = difflib.get_close_matches(norm, _all_alias_strings(), n=3, cutoff=0.6)
     return TeamMatchNone(list(suggestions))
