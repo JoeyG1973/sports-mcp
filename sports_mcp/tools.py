@@ -42,6 +42,24 @@ _NEXT_GAME_WINDOW_DAYS = 60
 # Place", "Round of 32 1 Winner"). Such placeholders are not real team names.
 _PLACEHOLDER_OPPONENT_MARKERS = ("winner", "place", "runner", "tbd", "to be")
 
+# Substrings marking a championship/series name rather than a team. Queries like
+# "who won the NBA Finals?" name an event, not a team, so there is nothing to
+# resolve — redirect instead of emitting fuzzy team guesses or a wrong game.
+_EVENT_NAME_MARKERS = (
+    "finals",
+    "final",
+    "playoff",
+    "championship",
+    "world series",
+    "super bowl",
+    "stanley cup",
+)
+
+
+def _looks_like_event_name(text: str) -> bool:
+    low = text.lower()
+    return any(marker in low for marker in _EVENT_NAME_MARKERS)
+
 
 def _league_for_slug(slug: str) -> LeagueInfo | None:
     for li in LEAGUE_REGISTRY:
@@ -96,6 +114,8 @@ def _competition_of_event(event: dict) -> dict:
 async def get_live_score(client: ESPNClient, team: str) -> str:
     match = resolve_team(team)
     if isinstance(match, TeamMatchNone):
+        if _looks_like_event_name(team):
+            return fmt.ask_for_team_message()
         return fmt.unknown_team_message(team, match.suggestions)
     if isinstance(match, TeamMatchAmbiguous):
         return fmt.ambiguity_message(team, _ambiguity_candidates(match.teams))
@@ -263,6 +283,8 @@ async def _next_game_from_scoreboard(client: ESPNClient, info: TeamInfo) -> str:
 async def get_next_game(client: ESPNClient, team: str) -> str:
     match = resolve_team(team)
     if isinstance(match, TeamMatchNone):
+        if _looks_like_event_name(team):
+            return fmt.ask_for_team_message()
         return fmt.unknown_team_message(team, match.suggestions)
     if isinstance(match, TeamMatchAmbiguous):
         return fmt.ambiguity_message(team, _ambiguity_candidates(match.teams))
@@ -320,23 +342,73 @@ def _completed_events_for_team(events: list[dict], team_id: str) -> list[dict]:
     return [event for _, event in candidates]
 
 
-def _competition_phrase(event: dict, league: LeagueInfo | None) -> str:
-    """Compose a TTS-safe 'League round' phrase, e.g. 'World Cup group stage'.
+# ESPN labels every sport's playoff rounds with the same generic bracket
+# vocabulary (type id 14-17 = round of 16 / quarterfinal / semifinal / final),
+# which is wrong for non-soccer leagues. Translate by (league, type id) to each
+# league's own postseason round names. Keyed by ESPN competition.type.id.
+#
+# Verified live (2026 postseason): NBA and NHL both use ids 14-17 for their four
+# playoff rounds. MLB and NFL also have four rounds and are mapped on the same
+# id scheme; those mappings are pending live verification when their postseasons
+# begin. An unmapped id falls back to the bare league name (never a soccer-style
+# label), so the worst case is a missing round, not a wrong one.
+_POSTSEASON_ROUNDS: dict[str, dict[str, str]] = {
+    "NBA": {
+        "14": "NBA first round",
+        "15": "NBA conference semifinals",
+        "16": "NBA conference finals",
+        "17": "NBA Finals",
+    },
+    "NHL": {
+        "14": "NHL first round",
+        "15": "NHL second round",
+        "16": "NHL conference finals",
+        "17": "Stanley Cup Final",
+    },
+    "MLB": {
+        "14": "Wild Card Series",
+        "15": "Division Series",
+        "16": "League Championship Series",
+        "17": "World Series",
+    },
+    "NFL": {
+        "14": "Wild Card round",
+        "15": "Divisional round",
+        "16": "Conference Championship",
+        "17": "Super Bowl",
+    },
+}
 
-    Falls back to just the league name when ESPN supplies no round text, or
-    to an empty string when neither is available.
+
+def _competition_phrase(event: dict, league: LeagueInfo | None) -> str:
+    """Compose a TTS-safe competition phrase, e.g. 'World Cup group stage'.
+
+    Soccer keeps ESPN's round text (it is correct for cups: group stage, round
+    of 16, quarterfinal, final). Non-soccer leagues translate ESPN's generic
+    bracket round to their own postseason name via _POSTSEASON_ROUNDS. Regular
+    season or unrecognized rounds yield just the league name.
     """
     comp = _competition_of_event(event)
-    round_text = ((comp.get("type") or {}).get("text") or "").strip()
+    type_block = comp.get("type") or {}
     league_name = league.name if league else ""
-    if league_name and round_text:
-        return f"{league_name} {round_text.lower()}"
-    return league_name or round_text
+    sport = league.sport if league else ""
+
+    if sport == "soccer":
+        round_text = (type_block.get("text") or "").strip()
+        if league_name and round_text:
+            return f"{league_name} {round_text.lower()}"
+        return league_name or round_text
+
+    type_id = str(type_block.get("id") or "")
+    round_phrase = _POSTSEASON_ROUNDS.get(league_name, {}).get(type_id)
+    return round_phrase or league_name
 
 
 async def get_recent_results(client: ESPNClient, team: str, count: int = 1) -> str:
     match = resolve_team(team)
     if isinstance(match, TeamMatchNone):
+        if _looks_like_event_name(team):
+            return fmt.ask_for_team_message()
         return fmt.unknown_team_message(team, match.suggestions)
     if isinstance(match, TeamMatchAmbiguous):
         return fmt.ambiguity_message(team, _ambiguity_candidates(match.teams))

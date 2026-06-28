@@ -242,6 +242,18 @@ def unknown_league_message(league_text: str, suggestions: list[str]) -> str:
     return f"I don't recognize {league_text}. Did you mean {_join_with_or(suggestions)}?"
 
 
+def ask_for_team_message() -> str:
+    """Redirect for event/championship-name queries that name no team.
+
+    "Who won the NBA Finals?" gives no team to look up; rather than guess a
+    wrong game, ask the user to name a team.
+    """
+    return (
+        "I can look up a specific team's result. "
+        "Try naming a team, like the Knicks or the United States."
+    )
+
+
 def final_outcome_line(
     team_name: str,
     team_score: int,
@@ -283,7 +295,11 @@ def recent_result_line(
     """
     sentence = final_outcome_line(team_name, team_score, opp_name, opp_score).rstrip(".")
     if when is not None:
-        sentence = f"{sentence} on {date_phrase(when)}"
+        date_str = date_phrase(when)
+        # Relative adverbs read wrong with "on" ("on today"); absolute dates
+        # and weekdays take it ("on June 13", "on Wednesday").
+        connector = "" if date_str in ("today", "tomorrow", "yesterday") else "on "
+        sentence = f"{sentence} {connector}{date_str}"
     if competition:
         sentence = f"{sentence} in the {competition}"
     return sentence + "."

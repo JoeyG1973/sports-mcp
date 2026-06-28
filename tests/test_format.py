@@ -379,6 +379,23 @@ def test_recent_result_line_without_competition():
     assert no_punctuation_artifacts(s)
 
 
+def test_recent_result_line_today_has_no_on_prefix(monkeypatch):
+    fixed_now = _test_dt.datetime(2026, 6, 27, 12, 0).astimezone()
+    monkeypatch.setattr("sports_mcp.format._now_local", lambda: fixed_now)
+    when = _test_dt.datetime(2026, 6, 27, 18, 0).astimezone()
+    s = recent_result_line(
+        team_name="New York Yankees",
+        team_score=1,
+        opp_name="Boston Red Sox",
+        opp_score=4,
+        when=when,
+        competition="MLB",
+    )
+    assert "on today" not in s
+    assert s == "The New York Yankees lost to the Boston Red Sox 1 to 4 today in the MLB."
+    assert no_punctuation_artifacts(s)
+
+
 def test_recent_result_line_without_date():
     s = recent_result_line(
         team_name="Arsenal",

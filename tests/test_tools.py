@@ -12,10 +12,12 @@ from pathlib import Path
 import httpx
 import pytest
 
+from sports_mcp.aliases import resolve_league
 from sports_mcp.espn import ESPNClient
 from sports_mcp.format import no_punctuation_artifacts
 from sports_mcp.tools import (
     _all_events_are_future,
+    _competition_phrase,
     _detect_offseason,
     _detect_postseason,
     _upcoming_matches_phrase,
@@ -1232,6 +1234,80 @@ async def test_get_recent_results_string_scores(monkeypatch):
         await c.aclose()
     assert "The Los Angeles Lakers beat the Houston Rockets 107 to 99 on June 25" in s
     assert no_punctuation_artifacts(s)
+
+
+def _event_with_type(type_block: dict) -> dict:
+    return {"competitions": [{"type": type_block, "competitors": []}]}
+
+
+def test_competition_phrase_nba_rounds_use_nba_names():
+    nba = resolve_league("NBA")
+    assert _competition_phrase(_event_with_type({"id": "14"}), nba) == "NBA first round"
+    assert _competition_phrase(_event_with_type({"id": "15"}), nba) == "NBA conference semifinals"
+    assert _competition_phrase(_event_with_type({"id": "16"}), nba) == "NBA conference finals"
+    assert _competition_phrase(_event_with_type({"id": "17"}), nba) == "NBA Finals"
+
+
+def test_competition_phrase_nhl_rounds_use_nhl_names():
+    nhl = resolve_league("NHL")
+    assert _competition_phrase(_event_with_type({"id": "14"}), nhl) == "NHL first round"
+    assert _competition_phrase(_event_with_type({"id": "17"}), nhl) == "Stanley Cup Final"
+
+
+def test_competition_phrase_non_soccer_never_uses_soccer_labels():
+    # ESPN's generic "Round of 16" text must not leak into NBA/NHL output.
+    nba = resolve_league("NBA")
+    phrase = _competition_phrase(_event_with_type({"id": "14", "text": "Round of 16"}), nba)
+    assert "round of 16" not in phrase.lower()
+    assert phrase == "NBA first round"
+
+
+def test_competition_phrase_unknown_round_falls_back_to_league():
+    nba = resolve_league("NBA")
+    # Regular season / unrecognized id -> just the league name, never a guess.
+    assert _competition_phrase(_event_with_type({"id": "2"}), nba) == "NBA"
+    assert _competition_phrase(_event_with_type({}), nba) == "NBA"
+
+
+def test_competition_phrase_soccer_keeps_espn_round_text():
+    wc = resolve_league("World Cup")
+    assert (
+        _competition_phrase(_event_with_type({"text": "Round of 16"}), wc)
+        == "World Cup round of 16"
+    )
+
+
+async def test_get_recent_results_event_name_redirects():
+    # "NBA Finals" names an event, not a team: redirect, never a game or
+    # bogus team suggestions.
+    c = make_client(lambda r: httpx.Response(200, json={"events": []}))
+    try:
+        s = await get_recent_results(c, "NBA Finals")
+    finally:
+        await c.aclose()
+    assert "specific team" in s
+    assert "don't recognize" not in s
+    assert no_punctuation_artifacts(s)
+
+
+async def test_get_next_game_event_name_redirects():
+    c = make_client(lambda r: httpx.Response(200, json={"events": []}))
+    try:
+        s = await get_next_game(c, "Stanley Cup Final")
+    finally:
+        await c.aclose()
+    assert "specific team" in s
+    assert no_punctuation_artifacts(s)
+
+
+async def test_unknown_team_still_reports_not_recognized():
+    # A genuine unknown team (not an event name) keeps the normal message.
+    c = make_client(lambda r: httpx.Response(200, json={"events": []}))
+    try:
+        s = await get_recent_results(c, "Quidditch United")
+    finally:
+        await c.aclose()
+    assert "don't recognize" in s
 
 
 def _make_pre_event(team_a: str, team_b: str, iso_date: str) -> dict:
